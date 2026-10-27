@@ -1,0 +1,41 @@
+# OmniManip ROS 2 nodes on the CoRAL desktop, in Albus's Ros2Bridge image (ROS 2 Humble, built from the pinned
+# third_party/ur5e-manip-hardware: docker build -f docker/Dockerfile.ros2 -t manip-ros2-bridge:latest .) with the
+# executor's additions (./Dockerfile).
+# Builds his manip_interfaces / manip_bridge (pinned checkout) with our packages, then serves /omnimanip/*.
+# The stage sidecar runs on the host in our uv env:  HOST=127.0.0.1 uv run python -m omnimanip.server
+#
+#   RUNS_DIR=$PWD/../outputs/runs docker compose up -d
+#   (umask 0: the run dirs this root container creates must stay writable by the host user's sidecar)
+#   docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \
+#       ros2 run omnimanip_ros run_task --task "Pour tea into the cup" --out $RUNS_DIR'
+#   docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \
+#       ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp>'          # gated at every motion
+services:
+  omnimanip-ros:
+    build: .
+    image: omnimanip-ros:latest
+    container_name: OmniManipROS
+    network_mode: host              # DDS discovery with the robot laptop; sidecars on localhost
+    ipc: host
+    working_dir: /root/omnimanip_ws
+    volumes:
+      - ./:/root/omnimanip_ws
+      - ../third_party/ur5e-manip-hardware/ros2_ws/src:/root/manip_src
+      - ../third_party/ur5e-manip-sim:/opt/manip-sim:ro   # manip_bridge's sim compat imports
+      - ${RUNS_DIR:?set RUNS_DIR}:${RUNS_DIR}              # same path as the host sidecar sees
+    environment:
+      # must match the robot laptop (ros2-essentials: domain 66, CycloneDDS) and gripper-control's .env; for
+      # offline bag replays while the laptop is up, use another domain (Albus: 67)
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-66}
+      - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}
+      - RUNS_DIR=${RUNS_DIR}
+      - OMNIMANIP_ADDR=tcp://127.0.0.1:5690
+      - POSE_ADDR=tcp://127.0.0.1:5667                 # FoundationPose tracking (executor)
+      - CUROBO_ADDR=tcp://127.0.0.1:5681               # robot mask for capture: CuroboServer-OmniManip
+      - RGB_TOPIC=${RGB_TOPIC:-/camera/camera/color/image_raw}
+      - DEPTH_TOPIC=${DEPTH_TOPIC:-/camera/camera/aligned_depth_to_color/image_raw}
+      - INFO_TOPIC=${INFO_TOPIC:-/camera/camera/color/camera_info}
+    command: >
+      bash -c "source /opt/ros/humble/setup.bash &&
+               colcon build --base-paths src /root/manip_src &&
+               source install/setup.bash && ros2 run omnimanip_ros bridge"

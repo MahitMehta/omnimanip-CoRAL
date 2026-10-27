@@ -1,0 +1,77 @@
+<mujoco model="teapot">
+  <asset>
+    <mesh file="meshes/teapot_visual.obj" name="teapot_visual_mesh" />
+    <mesh file="meshes/teapot_col_0.obj" name="teapot_col_mesh_0" />
+    <mesh file="meshes/teapot_col_1.obj" name="teapot_col_mesh_1" />
+    <mesh file="meshes/teapot_col_2.obj" name="teapot_col_mesh_2" />
+    <mesh file="meshes/teapot_col_3.obj" name="teapot_col_mesh_3" />
+    <mesh file="meshes/teapot_col_4.obj" name="teapot_col_mesh_4" />
+    <mesh file="meshes/teapot_col_5.obj" name="teapot_col_mesh_5" />
+    <mesh file="meshes/teapot_col_6.obj" name="teapot_col_mesh_6" />
+    <mesh file="meshes/teapot_col_7.obj" name="teapot_col_mesh_7" />
+    <mesh file="meshes/teapot_col_8.obj" name="teapot_col_mesh_8" />
+    <mesh file="meshes/teapot_col_9.obj" name="teapot_col_mesh_9" />
+    <mesh file="meshes/teapot_col_10.obj" name="teapot_col_mesh_10" />
+    <mesh file="meshes/teapot_col_11.obj" name="teapot_col_mesh_11" />
+    <mesh file="meshes/teapot_col_12.obj" name="teapot_col_mesh_12" />
+    <mesh file="meshes/teapot_col_13.obj" name="teapot_col_mesh_13" />
+    <mesh file="meshes/teapot_col_14.obj" name="teapot_col_mesh_14" />
+    <mesh file="meshes/teapot_col_15.obj" name="teapot_col_mesh_15" />
+    <mesh file="meshes/teapot_col_16.obj" name="teapot_col_mesh_16" />
+    <mesh file="meshes/teapot_col_17.obj" name="teapot_col_mesh_17" />
+    <mesh file="meshes/teapot_col_18.obj" name="teapot_col_mesh_18" />
+    <mesh file="meshes/teapot_col_19.obj" name="teapot_col_mesh_19" />
+    <mesh file="meshes/teapot_col_20.obj" name="teapot_col_mesh_20" />
+    <mesh file="meshes/teapot_col_21.obj" name="teapot_col_mesh_21" />
+    <mesh file="meshes/teapot_col_22.obj" name="teapot_col_mesh_22" />
+    <mesh file="meshes/teapot_col_23.obj" name="teapot_col_mesh_23" />
+    <mesh file="meshes/teapot_col_24.obj" name="teapot_col_mesh_24" />
+    <mesh file="meshes/teapot_col_25.obj" name="teapot_col_mesh_25" />
+    <mesh file="meshes/teapot_col_26.obj" name="teapot_col_mesh_26" />
+    <mesh file="meshes/teapot_col_27.obj" name="teapot_col_mesh_27" />
+    <mesh file="meshes/teapot_col_28.obj" name="teapot_col_mesh_28" />
+    <mesh file="meshes/teapot_col_29.obj" name="teapot_col_mesh_29" />
+    <mesh file="meshes/teapot_col_30.obj" name="teapot_col_mesh_30" />
+  </asset>
+  <worldbody>
+    <body>
+      <body name="object">
+        <geom type="mesh" mesh="teapot_visual_mesh" group="1" conaffinity="0" contype="0" rgba="0.8 0.8 0.85 1" mass="0.0001" />
+        <geom type="mesh" mesh="teapot_col_mesh_0" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.0203985" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_1" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.019607" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_2" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000452858" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_3" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00371541" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_4" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00206375" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_5" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.0356483" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_6" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.05868" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_7" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.0041667" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_8" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000135076" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_9" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000184834" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_10" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000306489" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_11" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000271767" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_12" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000371289" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_13" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00376415" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_14" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000406025" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_15" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.0342613" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_16" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00230425" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_17" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00106048" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_18" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.0037789" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_19" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00394315" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_20" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000302379" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_21" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000578014" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_22" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000666582" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_23" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00102741" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_24" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000834515" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_25" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00016973" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_26" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000112393" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_27" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="8.92958e-05" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_28" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000439888" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_29" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000148703" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="teapot_col_mesh_30" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000110808" friction="0.95 0.3 0.1" condim="4" />
+      </body>
+      <site name="bottom_site" pos="0 0 -0.04902" rgba="0 0 0 0" size="0.005" />
+      <site name="top_site" pos="0 0 0.04902" rgba="0 0 0 0" size="0.005" />
+      <site name="horizontal_radius_site" pos="0.06712 0.06625 0" rgba="0 0 0 0" size="0.005" />
+    </body>
+  </worldbody>
+</mujoco>

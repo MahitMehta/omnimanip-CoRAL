@@ -1,0 +1,11 @@
+# Stage 1: N synced frames -> median depth, table plane, robot mask (Albus's frame packet, live topics).
+int32 n_frames 0                # 0 = the frame packet's default
+float32 timeout_s 10.0
+---
+bool success
+string message
+sensor_msgs/Image rgb
+sensor_msgs/Image depth         # 32FC1 metres, per-pixel median
+sensor_msgs/CameraInfo camera_info
+sensor_msgs/Image robot_mask    # mono8; empty (0x0) when cuRobo or the joints were unavailable
+string packet_json              # the full frame packet (plane, T_base_cam, joints, gates)

@@ -1,0 +1,16 @@
+You are choosing the interaction direction of an object for a robot manipulation task.
+
+The chosen directions are used in the stage's spatial constraint: "the active object's axis and the passive object's axis are aligned" (they point the same way at the moment of interaction). So for the passive object, choose the direction along which the interaction enters or acts on it (e.g. into an opening); for the active object, choose the direction of its own that must point that way (e.g. a pen's tip, a spout).
+
+Example (task "Insert pen into holder", stage: place, pen active, holder passive):
+- pen candidates: "2. The axis is aligned along the length of the pen, extending from the handle towards the tip, with the arrow pointing towards the tip." -> expected "Extend outward along the pen tip, away from the body", ranked directions [2, 5, 1, 4, 3, 6]
+- holder candidates: "5. The axis runs vertically through the holder, passing through the opening center and extending downward." -> expected "Perpendicular to the round opening of the holder, facing inward", ranked directions [5, 2, 1, 3, 4, 6]
+
+Task: "{instruction}"
+Stage: {action}, with the {object} as the {role} object; its interaction part is the {part}.
+
+Candidate directions of the {object}, described in words:
+{captions}
+
+First state the caption of the direction this stage needs from the {object}, then rank all six candidates from most to least relevant to the task.
+Respond in JSON: {{"expected interaction direction caption": "<caption>", "ranked directions": [<six candidate numbers>]}}

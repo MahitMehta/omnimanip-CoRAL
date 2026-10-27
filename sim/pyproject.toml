@@ -1,0 +1,31 @@
+# Albus's MuJoCo sim (third_party/ur5e-manip-sim) on macOS. Its own env: the sim stack pins numpy<2 and
+# mujoco 3.3.7, which the main project (numpy 2) cannot share. Versions = its requirements.txt + Dockerfile.
+[project]
+name = "omnimanip-sim"
+version = "0.1.0"
+requires-python = "==3.12.*" # its Dockerfile uses 3.10, but scipy 1.15 (the last for 3.10) fails to load on this macOS
+dependencies = [
+  "mujoco==3.3.7",
+  "robosuite==1.5.2",
+  "robosuite_models>=1.0.0",
+  "mink==0.0.5",
+  "qpsolvers[quadprog]>=4.3.1",
+  "numpy<2.0",
+  "scipy>=1.16",
+  "Pillow",
+  "imageio[ffmpeg]",
+  "opencv-python-headless",
+  "h5py",
+  "pyyaml",
+  "trimesh",
+  "coacd",
+  "manifold3d",
+  "daqp",
+  "pyzmq",
+  "msgpack",
+  "msgpack-numpy",
+  "python-dotenv>=1.2.4",
+]
+
+[tool.uv]
+package = false

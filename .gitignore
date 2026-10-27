@@ -1,0 +1,17 @@
+# env
+.env
+.venv/
+
+bag/
+extracted/
+outputs/
+*.tar.zst
+
+# misc
+paper/
+
+# cache
+.ruff_cache
+__pycache__/
+# macOS
+.DS_Store

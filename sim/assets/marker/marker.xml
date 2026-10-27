@@ -1,0 +1,31 @@
+<mujoco model="marker">
+  <asset>
+    <mesh file="meshes/marker_visual.obj" name="marker_visual_mesh" />
+    <mesh file="meshes/marker_col_0.obj" name="marker_col_mesh_0" />
+    <mesh file="meshes/marker_col_1.obj" name="marker_col_mesh_1" />
+    <mesh file="meshes/marker_col_2.obj" name="marker_col_mesh_2" />
+    <mesh file="meshes/marker_col_3.obj" name="marker_col_mesh_3" />
+    <mesh file="meshes/marker_col_4.obj" name="marker_col_mesh_4" />
+    <mesh file="meshes/marker_col_5.obj" name="marker_col_mesh_5" />
+    <mesh file="meshes/marker_col_6.obj" name="marker_col_mesh_6" />
+    <texture name="marker_tex" type="2d" file="meshes/marker_texture.png" />
+    <material name="marker_mat" texture="marker_tex" specular="0.1" shininess="0.1" />
+  </asset>
+  <worldbody>
+    <body>
+      <body name="object">
+        <geom type="mesh" mesh="marker_visual_mesh" group="1" conaffinity="0" contype="0" mass="0.0001" material="marker_mat" />
+        <geom type="mesh" mesh="marker_col_mesh_0" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000180636" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="marker_col_mesh_1" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.00303068" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="marker_col_mesh_2" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.0104278" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="marker_col_mesh_3" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000537157" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="marker_col_mesh_4" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000558975" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="marker_col_mesh_5" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000501903" friction="0.95 0.3 0.1" condim="4" />
+        <geom type="mesh" mesh="marker_col_mesh_6" group="0" rgba="0 1 0 0.0" solimp="0.998 0.998 0.001" solref="0.01 1" density="0" mass="0.000562888" friction="0.95 0.3 0.1" condim="4" />
+      </body>
+      <site name="bottom_site" pos="0 0 -0.00945" rgba="0 0 0 0" size="0.005" />
+      <site name="top_site" pos="0 0 0.00945" rgba="0 0 0 0" size="0.005" />
+      <site name="horizontal_radius_site" pos="0.01051 0.06048 0" rgba="0 0 0 0" size="0.005" />
+    </body>
+  </worldbody>
+</mujoco>

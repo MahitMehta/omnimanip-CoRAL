@@ -1,0 +1,8 @@
+You are choosing where a robot's parallel gripper should grasp an object.
+The image shows the {object}. It is overlaid with a dot matrix of a shape of {rows} * {cols}; only the dots on the object are drawn, and each is labeled with two-dimensional coordinates (x,y). Within each column, the x-coordinate increases from top to bottom, and within each row, the y-coordinate increases from left to right.
+
+Task: "{instruction}"
+Grasp the {object} by its {part}.
+
+Describe a grasping strategy that suits the task, then select the dots on the part that give a stable grasp for it.
+Respond in JSON: {{"Strategy": "<one or two sentences>", "Selected dots": [[x, y], ...]}}

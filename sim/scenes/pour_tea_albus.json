@@ -1,0 +1,17 @@
+{
+  "name": "pour_tea_albus_layout",
+  "task": "pour tea from the teapot into the cup",
+  "table": {"size": [1.2, 1.2, 0.05], "top_z": 0.8},
+  "drop_height": 0.06,
+  "settle_steps": 20,
+  "objects": {
+    "teapot": {
+      "asset": "../../sim/assets/teapot",
+      "placement": {"xy": [0.0, -0.25], "yaw": {"face": "mug", "along": "pour_axis"}}
+    },
+    "mug": {
+      "asset": "../../sim/assets/mug",
+      "placement": {"xy": [0.0, 0.25], "yaw": -1.5708}
+    }
+  }
+}

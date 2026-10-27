@@ -1,0 +1,7 @@
+# Stage 3: task partition on the marked image (supp. A.2).
+string task
+sensor_msgs/Image marked
+---
+bool success
+string message
+TaskPlan plan

@@ -1,0 +1,14 @@
+# Stage 9: canonical frame, up = table normal (symmetry-refined), front = Orient Anything's front.
+sensor_msgs/Image rgb           # for the overlay
+sensor_msgs/CameraInfo camera_info
+string mesh_path
+geometry_msgs/Pose cam_t_obj
+string decision_json            # RegisterObject's; holds Orient Anything's real-crop reading
+float64[3] table_normal         # camera frame (packet plane n)
+---
+bool success
+string message
+float64[9] r_body_from_canon
+geometry_msgs/Pose cam_t_can
+string frame_json
+sensor_msgs/Image overlay       # rgb8, canonical axes over the image

@@ -1,0 +1,16 @@
+# Stage 11: interaction point(s) for one object's element (O4): SCAFFOLD dots on the object crop (visible) or on
+# rendered front/side views (invisible); grasp parts give several dots.
+sensor_msgs/Image rgb
+sensor_msgs/Image depth
+sensor_msgs/CameraInfo camera_info
+string task
+ObjectModel object
+InteractionElement element
+---
+bool success
+string message
+string kind                     # "visible" | "invisible" | "grasp"
+geometry_msgs/Point[] points    # canonical frame
+geometry_msgs/Point[] points_camera
+sensor_msgs/Image[] images      # the gridded images the VLM chose on
+string vlm_json

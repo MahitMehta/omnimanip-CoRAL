@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "expected interaction direction caption": {"type": "string"},
+    "ranked directions": {"type": "array", "items": {"type": "integer"}, "minItems": 6, "maxItems": 6}
+  },
+  "required": ["expected interaction direction caption", "ranked directions"]
+}

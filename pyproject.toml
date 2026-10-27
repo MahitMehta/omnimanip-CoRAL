@@ -1,0 +1,35 @@
+[project]
+name = "omnimanip"
+version = "0.1.0"
+description = "OmniManip (arXiv 2501.03841) baseline on the CoRAL UR5e"
+requires-python = ">=3.12"
+dependencies = [
+    "litellm",
+    "msgpack",
+    "msgpack-numpy",
+    "numpy",
+    "opencv-python-headless",
+    "pillow",
+    "pyrender>=0.1.45",
+    "python-dotenv",
+    "pyzmq",
+    "rosbags",
+    "scipy",
+    "trimesh",
+]
+
+[dependency-groups]
+dev = ["pyright", "ruff"]
+
+[tool.uv]
+package = false
+# pyrender pins PyOpenGL==3.1.0, whose glGenTextures breaks on Python 3.12+ (textured meshes fail)
+override-dependencies = ["pyopengl>=3.1.7"]
+
+[tool.ruff]
+extend-exclude = ["third_party"]
+
+[tool.pyright]
+exclude = ["third_party", ".venv"]
+venvPath = "."
+venv = ".venv"

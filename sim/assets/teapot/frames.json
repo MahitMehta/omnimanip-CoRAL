@@ -1,0 +1,83 @@
+{
+ "object": "teapot",
+ "units": "meters",
+ "coordinates": "body frame of mjcf body 'object' (what PoseReader returns)",
+ "schema": "grounding symbol table: independent interaction POINTS and semantic AXES; frames are composed downstream as frame(origin=<point>, axis=<axis>), matching the emission DSL. Axis -> frame +z, completed by Gram-Schmidt.",
+ "points": {
+  "spout_tip": {
+   "xyz": [
+    -0.064575,
+    0.0636,
+    0.02865
+   ],
+   "status": "calibrated",
+   "comment": "auto-calibrated from mesh (calibrate_frames_from_mesh.py)"
+  },
+  "handle_center": {
+   "xyz": [
+    0.04920000000000001,
+    -0.04957500000000001,
+    0.001425
+   ],
+   "status": "calibrated",
+   "comment": "auto-calibrated from mesh (calibrate_frames_from_mesh.py)"
+  }
+ },
+ "axes": {
+  "pour_axis": {
+   "xyz": [
+    -0.7243,
+    0.6895,
+    0.0
+   ],
+   "status": "calibrated",
+   "comment": "spout direction derived from mesh geometry; auto-calibrated from mesh (calibrate_frames_from_mesh.py)"
+  },
+  "up_axis": {
+   "xyz": [
+    0.0,
+    0.0,
+    1.0
+   ],
+   "status": "calibrated",
+   "comment": "lid direction at rest"
+  },
+  "handle_axis": {
+   "xyz": [
+    0.0109,
+    0.023,
+    0.9997
+   ],
+   "status": "calibrated",
+   "comment": "auto-calibrated from mesh (calibrate_frames_from_mesh.py)"
+  },
+  "tilt_axis": {
+   "xyz": [
+    -0.6895,
+    -0.7243,
+    0.0
+   ],
+   "status": "calibrated",
+   "comment": "up_axis x pour_axis, positive tips spout down; auto-calibrated from mesh (calibrate_frames_from_mesh.py)"
+  },
+  "front_axis": {
+   "xyz": [
+    -0.7243,
+    0.6895,
+    0.0
+   ],
+   "status": "calibrated",
+   "comment": "canonical frame: front = pour_axis (spout direction)"
+  },
+  "lateral_axis": {
+   "xyz": [
+    -0.6895,
+    -0.7243,
+    0.0
+   ],
+   "status": "calibrated",
+   "comment": "canonical frame: lateral = up_axis x front_axis (= tilt_axis)"
+  }
+ },
+ "comment_scale": "points scaled by 0.75 with the mesh (sim/make_assets.sh); axes unchanged"
+}

@@ -1,0 +1,14 @@
+# Stage 12: the six canonical axes rendered as arrows, captioned by the VLM and ranked for the stage (O5).
+sensor_msgs/CameraInfo camera_info
+string task
+ObjectModel object
+InteractionElement element
+string[] object_parts           # every interaction part of this object in the plan (caption context)
+---
+bool success
+string message
+geometry_msgs/Vector3[] ranked_directions   # canonical frame, best first
+int32[] ranking                 # 1-based candidate indices, best first
+string[] captions
+string expected
+sensor_msgs/Image image         # the caption sheet

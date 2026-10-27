@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>omnimanip_ros</name>
+  <version>0.1.0</version>
+  <description>OmniManip pipeline stages as ROS 2 services (bridge to the omnimanip.server sidecar) and the task runner.</description>
+  <maintainer email="mahit.py@gmail.com">Mahit Mehta</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>omnimanip_interfaces</depend>
+  <depend>manip_bridge</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>message_filters</depend>
+  <depend>python3-scipy</depend>
+  <depend>python3-opencv</depend>
+
+  <exec_depend>ros2launch</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

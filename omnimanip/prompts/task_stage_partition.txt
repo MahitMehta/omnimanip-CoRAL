@@ -1,0 +1,22 @@
+You are a robot manipulation planner. The robot has a single arm with a parallel gripper.
+The image shows the scene with every detected object marked with its bbox_ID number.
+
+Task: "{instruction}"
+
+1. Select the objects relevant to the task. Give each a short object_ID and its bbox_ID. Objects needed but not detected (e.g. the gripper, the table) get bbox_ID -1.
+2. Partition the task into sequential stages. Each stage has an action from [grasp, place, push, pull, rotate, pour], an active object (the one initiating the interaction) and a passive object (the one acted upon). The gripper is the active object when it acts directly on an object.
+3. For every stage, give the interaction element of its active and passive object: the object part where the interaction happens, and whether that part is visible and tangible (e.g. a handle) or not (e.g. the center of an opening).
+
+Example for the task "Pick up cup onto dish":
+{{"Task Name": "Pick up cup onto dish",
+ "Think Step by Step": "First, grasp the cup using the gripper. Then, lift and move the cup to position it above the dish. Finally, place the cup onto the dish.",
+ "objects": [{{"object_ID": "cup", "bbox_ID": 2}}, {{"object_ID": "dish", "bbox_ID": 3}}, {{"object_ID": "gripper", "bbox_ID": -1}}, {{"object_ID": "table", "bbox_ID": -1}}],
+ "stages": [{{"action": "grasp", "active_object_ID": "gripper", "passive_object_ID": "cup"}},
+            {{"action": "place", "active_object_ID": "cup", "passive_object_ID": "dish"}}],
+ "interaction_elements": [
+  {{"object_ID": "gripper", "element": {{"action": "grasp", "type": "active", "interaction_part": "finger", "part_visible_and_tangible": true}}}},
+  {{"object_ID": "cup", "element": {{"action": "grasp", "type": "passive", "interaction_part": "handle center", "part_visible_and_tangible": true}}}},
+  {{"object_ID": "cup", "element": {{"action": "place", "type": "active", "interaction_part": "base center", "part_visible_and_tangible": true}}}},
+  {{"object_ID": "dish", "element": {{"action": "place", "type": "passive", "interaction_part": "center", "part_visible_and_tangible": true}}}}]}}
+
+Respond in JSON with exactly these keys.

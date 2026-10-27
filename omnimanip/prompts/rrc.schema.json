@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "Think Step By Step": {"type": "string"},
+    "Reasonable": {"type": "string", "enum": ["success", "refine", "failure"]},
+    "interaction_value": {"type": "number"}
+  },
+  "required": ["Think Step By Step", "Reasonable", "interaction_value"]
+}

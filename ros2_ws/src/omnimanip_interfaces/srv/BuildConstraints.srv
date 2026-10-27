@@ -1,0 +1,9 @@
+# Stage 13: the candidate list K_i, one constraint per ranked active direction (O6).
+geometry_msgs/Point active_point
+geometry_msgs/Vector3[] active_directions
+geometry_msgs/Point passive_point
+geometry_msgs/Vector3 passive_direction
+---
+bool success
+string message
+Constraint[] constraints

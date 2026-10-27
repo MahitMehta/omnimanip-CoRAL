@@ -1,0 +1,36 @@
+{
+  "name": "marker_cup_centred",
+  "task": "insert the marker into the cup",
+  "table": {
+    "size": [
+      1.2,
+      1.2,
+      0.05
+    ],
+    "top_z": 0.8
+  },
+  "drop_height": 0.03,
+  "settle_steps": 20,
+  "objects": {
+    "marker": {
+      "asset": "../../sim/assets/marker",
+      "placement": {
+        "xy": [
+          -0.29,
+          -0.12
+        ],
+        "yaw": 0.0
+      }
+    },
+    "mug": {
+      "asset": "../../sim/assets/mug",
+      "placement": {
+        "xy": [
+          -0.29,
+          0.12
+        ],
+        "yaw": -1.5708
+      }
+    }
+  }
+}

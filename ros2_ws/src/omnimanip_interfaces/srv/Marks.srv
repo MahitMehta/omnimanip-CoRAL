@@ -1,0 +1,15 @@
+# Stage 2: SAM 3 label-free instances -> numbered marks (marked.png is what the VLM sees).
+sensor_msgs/Image rgb
+sensor_msgs/Image depth
+sensor_msgs/CameraInfo camera_info
+sensor_msgs/Image robot_mask    # empty = none
+string packet_json
+string run_dir                  # mark files are written under run_dir/marks
+---
+bool success
+string message
+int32[] mark_ids
+sensor_msgs/Image[] masks       # mono8, one per mark id
+sensor_msgs/Image marked        # rgb8 set-of-mark image
+sensor_msgs/Image arm_mask      # mono8; empty when none
+string report_json

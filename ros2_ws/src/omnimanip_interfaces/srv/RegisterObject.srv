@@ -1,0 +1,17 @@
+# Stages 4-8: TRELLIS.2 mesh -> Any6D scale -> FoundationPose pose (+ re-rank and Orient Anything yaw choice)
+# -> local copy of the textured mesh.
+sensor_msgs/Image rgb
+sensor_msgs/Image depth
+sensor_msgs/CameraInfo camera_info
+sensor_msgs/Image mask
+sensor_msgs/Image arm_mask      # empty = none
+int32 mark_id
+bool decide true                # false = FoundationPose's scorer pick (run_perception --no-decide)
+string run_dir                  # the mesh is copied to run_dir/objects/omni_m<id>/
+---
+bool success
+string message
+string mesh_path
+geometry_msgs/Pose cam_t_obj
+string decision_json
+string record_json

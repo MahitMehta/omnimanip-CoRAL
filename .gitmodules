@@ -1,0 +1,8 @@
+[submodule "third_party/ur5e-manip-hardware"]
+	path = third_party/ur5e-manip-hardware
+	url = https://github.com/albus-fang-research-engineer/ur5e-manip-hardware
+	branch = vlm-port
+[submodule "third_party/ur5e-manip-sim"]
+	path = third_party/ur5e-manip-sim
+	url = https://github.com/albus-fang-research-engineer/ur5e-manip-sim
+	branch = insert-marker

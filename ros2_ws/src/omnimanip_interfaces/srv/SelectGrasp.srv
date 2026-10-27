@@ -1,0 +1,17 @@
+# Stage 15: AnyGrasp proposals filtered by the heatmap of the VLM grasp points (supp. A.3, O8).
+sensor_msgs/Image rgb
+sensor_msgs/Image depth
+sensor_msgs/CameraInfo camera_info
+ObjectModel object
+geometry_msgs/Point[] grasp_points   # canonical frame (ProposePoints, kind "grasp")
+---
+bool success
+string message
+geometry_msgs/Pose cam_t_grasp  # grasp frame: x approach, y closing
+geometry_msgs/Pose grasp_t_obj  # Phi: grasp -> object canonical (paper Eq. 3)
+float64 width
+float64 depth
+float64 score
+int32 n_candidates
+int32 index
+sensor_msgs/Image overlay

@@ -1,0 +1,18 @@
+You are checking a planned robot interaction before it is executed.
+The image shows the scene with the {active} rendered at the pose the plan would move it to, relative to the {passive}. The red arrow is the {active}'s interaction direction ({active_part}).
+
+Task: "{instruction}"
+Stage: {action}, with the {active} as the active object and the {passive} as the passive object.
+Planned constraint: {constraint}
+
+Look at the rendered {active} itself, its orientation and position, and judge whether its {active_part} would do what the stage needs. The red arrow only shows the planned direction: it can look right even when the object is wrong (for example upside down, or with the wrong part facing the {passive}). Grey areas are outside the camera view.
+
+Judge whether this interaction would accomplish the stage:
+- "success": the pose and direction are right for the task (feasible without collision).
+- "refine": roughly right (the right part of the {active} faces the {passive} in about the right way), but the direction is somewhat off, for example the object is tilted too far or not far enough, and a nearby direction would be better.
+- "failure": the direction is wrong for the task (for example the wrong part faces the {passive}, or the object is upside down), so no nearby direction would fix it.
+Also give "interaction_value": the signed distance in cm from the {passive}'s interaction point to where the {active}'s interaction point should be, along the {passive}'s interaction axis (negative = against that axis; 0 = at the point). Choose the distance the stage needs so that the {active} clears the {passive}: for example, when pouring into or placing onto something from above, the {active}'s interaction point should stay above the {passive}'s, which is a negative value when the {passive}'s axis points down into it.
+
+Example: {{"Think Step By Step": "The image shows a cup positioned above a dish. The red arrow indicates a downward direction, suggesting the cup will be placed onto the dish. The base center of the cup aligns with the center of the dish, which is appropriate for the task.", "Reasonable": "success", "interaction_value": 0}}
+
+Respond in JSON: {{"Think Step By Step": "<reasoning>", "Reasonable": "success" | "refine" | "failure", "interaction_value": <number>}}

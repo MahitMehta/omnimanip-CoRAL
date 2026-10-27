@@ -1,0 +1,18 @@
+# Stage 14: RRC (Algorithm 1): render each candidate over the inpainted frame; the VLM answers success / failure
+# / refine and the distance.
+sensor_msgs/Image rgb
+sensor_msgs/CameraInfo camera_info
+string task
+Stage stage
+string active_part
+ObjectModel active
+ObjectModel passive
+Constraint[] constraints
+---
+bool success
+string message
+bool accepted                   # false = list exhausted (task failure)
+Constraint constraint           # the accepted one, distance set
+geometry_msgs/Pose cam_t_active_target
+sensor_msgs/Image[] images      # one per check
+string trace_json

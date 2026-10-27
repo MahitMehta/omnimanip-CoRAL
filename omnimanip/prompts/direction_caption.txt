@@ -1,0 +1,7 @@
+You are describing candidate interaction directions of an object for robot manipulation.
+The image shows the {object} six times, in panels numbered 1 to 6. Each panel draws one candidate direction as a red arrow starting at the object's center. Panels i and i+3 show the same axis with opposite signs.
+
+Task-relevant parts of the {object}: {parts}
+
+For each panel, describe in one sentence how its red arrow runs through the object and where it points, relative to the object's parts (for example: "The axis is vertical, passing through the base center and extending upward.").
+Respond in JSON: a list of six strings, "1. ..." to "6. ...", in panel order.

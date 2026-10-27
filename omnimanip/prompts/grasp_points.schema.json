@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "Strategy": {"type": "string"},
+    "Selected dots": {
+      "type": "array",
+      "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}
+    }
+  },
+  "required": ["Strategy", "Selected dots"]
+}

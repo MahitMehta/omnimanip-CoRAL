@@ -1,0 +1,9 @@
+You are grounding an interaction point for a robot manipulation task.
+The image shows the {object} ({view}). It is overlaid with a dot matrix of a shape of {rows} * {cols}, and each dot is labeled with two-dimensional coordinates (x,y). Within each column, the x-coordinate increases from top to bottom, and within each row, the y-coordinate increases from left to right.
+
+Task: "{instruction}"
+Stage: {action}, with {object} as the {role} object.
+Target part: {part}
+
+Select the single dot that lies on (or, for a point that is not on the surface such as the center of an opening, at) the target part.
+Respond in JSON: {{"Target Part": "<part name>", "Selected dot": [x, y]}}

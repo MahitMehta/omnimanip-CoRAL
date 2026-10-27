@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "Task Name": {"type": "string"},
+    "Think Step by Step": {"type": "string"},
+    "objects": {"type": "array", "items": {
+      "type": "object",
+      "properties": {"object_ID": {"type": "string"}, "bbox_ID": {"type": "integer"}},
+      "required": ["object_ID", "bbox_ID"]}},
+    "stages": {"type": "array", "items": {
+      "type": "object",
+      "properties": {
+        "action": {"type": "string", "enum": ["grasp", "place", "push", "pull", "rotate", "pour"]},
+        "active_object_ID": {"type": "string"},
+        "passive_object_ID": {"type": "string"}},
+      "required": ["action", "active_object_ID", "passive_object_ID"]}},
+    "interaction_elements": {"type": "array", "items": {
+      "type": "object",
+      "properties": {
+        "object_ID": {"type": "string"},
+        "element": {"type": "object", "properties": {
+          "action": {"type": "string", "enum": ["grasp", "place", "push", "pull", "rotate", "pour"]},
+          "type": {"type": "string", "enum": ["active", "passive"]},
+          "interaction_part": {"type": "string"},
+          "part_visible_and_tangible": {"type": "boolean"}},
+          "required": ["action", "type", "interaction_part", "part_visible_and_tangible"]}},
+      "required": ["object_ID", "element"]}}
+  },
+  "required": ["Task Name", "Think Step by Step", "objects", "stages", "interaction_elements"]
+}

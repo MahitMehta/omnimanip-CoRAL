@@ -1,0 +1,8 @@
+{
+  "type": "object",
+  "properties": {
+    "Target Part": {"type": "string"},
+    "Selected dot": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}
+  },
+  "required": ["Target Part", "Selected dot"]
+}
