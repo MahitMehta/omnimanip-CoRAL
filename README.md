@@ -25,7 +25,7 @@ Planning, stages 1–16, as `omnimanip.run` stages: `perception` (1–10) → `p
 4. **Mesh** (per task object): TRELLIS.2 builds a textured 3D mesh from the masked object crop, in a unit-size box.
 5. **Scale**: Any6D stretches that mesh along each axis to the object's real size, using the observed depth.
 6. **Pose**: FoundationPose finds the scaled mesh's 6D pose in the camera and re-ranks its candidate poses against the mask.
-7. **Yaw choice**: Orient Anything compares the real object crop with a render of each candidate and picks the one facing the right way (`--no-decide` skips this and the re-rank, keeping FoundationPose's own pick).
+7. **Yaw choice**: Orient Anything compares the real object crop with a render of each candidate and picks the one facing the right way (`--no-decide` on `omnimanip.run` or `run_task` skips this and the re-rank, keeping FoundationPose's own pick).
 8. **Mesh copy**: the scaled mesh and its texture are copied from Any6D's per-object folder (a local copy on CoRAL, scp elsewhere).
 9. **Canonical frame**: sets up = the table normal (refined by the object's symmetry axis) and front = Orient Anything's front, giving the object's canonical pose and mesh.
 10. **Overlays**: draws the canonical axes and the mesh-versus-mask accuracy image (also scored for FoundationPose's own pick and Any6D's pose), and saves per-stage timings.
@@ -84,7 +84,7 @@ Everything runs on CoRAL (`ssh coral`) except the robot laptop's driver, camera 
 6. **Plan** (no motion, ~9 min), then check `canonical_overlay_*`, `grasp/`, `rrc/`, `targetpose/` in the run dir. Don't move the objects after this.
    ```bash
    docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \
-     ros2 run omnimanip_ros run_task --task "<instruction>" --out $RUNS_DIR'   # e.g. "Pour tea into the cup"
+     ros2 run omnimanip_ros run_task --task "<instruction>" --out $RUNS_DIR'   # e.g. "Pour tea into the cup"; add --no-decide to skip the yaw decision
    ```
 7. **Execute**: 10 % speed, Enter at every motion (anything else stops; Ctrl-C cancels a motion). Writes `exec.json`.
    ```bash

@@ -6,7 +6,7 @@ sensor_msgs/CameraInfo camera_info
 sensor_msgs/Image mask
 sensor_msgs/Image arm_mask      # empty = none
 int32 mark_id
-bool decide true                # false = FoundationPose's scorer pick (run_perception --no-decide)
+bool decide true                # false = FoundationPose's scorer pick (--no-decide on omnimanip.run / run_task)
 string run_dir                  # the mesh is copied to run_dir/objects/omni_m<id>/
 ---
 bool success

@@ -4,7 +4,7 @@ objects.json, points/, directions/, constraints/, rrc/, grasp/, targetpose/).
 
 The run directory must be visible at the same path to this node and to omnimanip.server (both write into it).
 
-    ros2 run omnimanip_ros run_task --task "Pour tea into the cup" --out /path/to/outputs/runs
+    ros2 run omnimanip_ros run_task --task "Pour tea into the cup" --out /path/to/outputs/runs [--no-decide]
 """
 
 import argparse
@@ -77,7 +77,7 @@ def _save(msg, path):
     cv2.imwrite(str(path), cv2.cvtColor(image_to_rgb(msg), cv2.COLOR_RGB2BGR))
 
 
-def run(node, task, run):
+def run(node, task, run, decide=True):
     for d in (
         "marks",
         "objects",
@@ -130,7 +130,7 @@ def run(node, task, run):
             mask=masks[o.mark_id],
             arm_mask=mk.arm_mask,
             mark_id=o.mark_id,
-            decide=True,
+            decide=decide,
             run_dir=str(run),
         )
         can = node.call(
@@ -368,6 +368,11 @@ def main():
     ap.add_argument(
         "--out", required=True, help="runs root; the run goes to <out>/<timestamp>"
     )
+    ap.add_argument(
+        "--no-decide",
+        action="store_true",
+        help="FoundationPose's scorer pick, no re-rank / Orient Anything yaw decision",
+    )
     a, ros_args = ap.parse_known_args()
     rclpy.init(args=ros_args)
     node = Runner()
@@ -377,7 +382,7 @@ def main():
     out = Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
     node.get_logger().info(f"run dir {out}")
     try:
-        run(node, a.task, out)
+        run(node, a.task, out, decide=not a.no_decide)
     finally:
         ex.shutdown()
         rclpy.shutdown()
