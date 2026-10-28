@@ -2,7 +2,7 @@
 <package format="3">
   <name>omnimanip_interfaces</name>
   <version>0.1.0</version>
-  <description>OmniManip pipeline stages as ROS 2 services (one per stage, PIPELINE.md numbering).</description>
+  <description>OmniManip pipeline stages as ROS 2 services (one per stage, README Pipeline numbering).</description>
   <maintainer email="mahit.py@gmail.com">Mahit Mehta</maintainer>
   <license>MIT</license>
 

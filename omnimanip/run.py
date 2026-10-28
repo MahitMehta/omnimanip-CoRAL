@@ -1,4 +1,4 @@
-"""The offline pipeline (PIPELINE.md stages 1-16) into one run directory, stage by stage; each stage reads what the
+"""The offline pipeline (README Pipeline stages 1-16) into one run directory, stage by stage; each stage reads what the
 earlier ones wrote, so --from resumes a run at any stage.
 
     uv run python -m omnimanip.run --out outputs/<name> [--start 58]          # the bag in extracted/

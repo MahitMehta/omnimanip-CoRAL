@@ -382,7 +382,7 @@ def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True):
             "return_glb": False,
             "mask": m8 * 255,
             # no depth/K: they only trigger the sidecar's metric-scale branch, which run_scene records but
-            # never uses (Any6D does the scaling); the GLB does not depend on them (DEVIATIONS #15)
+            # never uses (Any6D does the scaling); the GLB does not depend on them (DEVIATIONS #12)
         }
     )
     laps("trellis2")

@@ -1,6 +1,6 @@
 # Sim pipeline (one line per stage, kept current)
 
-Albus's MuJoCo scene (`third_party/ur5e-manip-sim`) on macOS, in its own uv env (`sim/pyproject.toml`), used to test the stages after perception. Stage numbers refer to `../PIPELINE.md`.
+Albus's MuJoCo scene (`third_party/ur5e-manip-sim`) on macOS, in its own uv env (`sim/pyproject.toml`), used to test the stages after perception. Stage numbers refer to the Pipeline section of `../README.md`.
 
 1. **Assets** (`sim/make_assets.sh`): downloads the YCB red mug (025_mug), converts it and Albus's teapot (scaled to 0.75) into `sim/assets/`, with collision hulls and the teapot's `frames.json` scaled to match.
 2. **Scene** (`sim/scenes/pour_tea_real.json`): teapot and mug placed where perception put the real ones (base_link mapped into robosuite's base frame) but 25 cm closer to the robot (at 0.87–0.95 m the real ones are at the edge of the UR5e's reach), with the teapot's spout facing the mug.

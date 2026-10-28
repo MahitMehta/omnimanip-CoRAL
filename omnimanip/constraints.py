@@ -1,6 +1,6 @@
 """Interaction primitives as spatial constraints (paper Sec. 3.1 Eq. 1, Sec. 3.2, Fig. 2).
 
-C = {O_active, O_passive, d, theta}. Following the paper's artefacts (DEVIATIONS #26) there is no constraint
+C = {O_active, O_passive, d, theta}. Following the paper's artefacts (DEVIATIONS #20) there is no constraint
 prompt: theta is always "aligned" (Fig. 2), the ordered list K_i follows the active object's direction ranking
 (each paired with the passive object's top direction), and the signed distance d is RRC's "interaction_value"
 (supp. A.4: "v is the distance predicted by VLM"), 0 until RRC sets it. Points/axes are canonical-frame.

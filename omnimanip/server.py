@@ -1,4 +1,4 @@
-"""OmniManip stage sidecar: one ZMQ command per pipeline stage (PIPELINE.md 2-16) for the ROS 2 bridge in
+"""OmniManip stage sidecar: one ZMQ command per pipeline stage (README Pipeline stages 2-16) for the ROS 2 bridge in
 ros2_ws/src/omnimanip_ros, plus the motion commands its executor uses (map, plan, line, kinematics). Same wire
 protocol as the CoRAL sidecars (REQ/REP, msgpack + msgpack_numpy; {"ok": False, "error"} on failure), so the
 bridge reuses manip_bridge's SidecarClient. Stage 1 (capture) runs in the bridge, which owns the camera topics.

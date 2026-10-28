@@ -1,4 +1,4 @@
-"""OmniManip pipeline stages as ROS 2 services (PIPELINE.md numbering), the same shape as Albus's manip_bridge
+"""OmniManip pipeline stages as ROS 2 services (README Pipeline numbering), the same shape as Albus's manip_bridge
 nodes: a thin rclpy layer over a ZMQ sidecar (omnimanip.server, our Python 3.12 env), so ROS Humble's Python 3.10
 never imports the pipeline.
 

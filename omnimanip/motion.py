@@ -1,4 +1,4 @@
-"""Collision-free motion between O9 targets (the paper names no planner; DEVIATIONS #40), on the cuRobo sidecar.
+"""Collision-free motion between O9 targets (the paper names no planner; DEVIATIONS #33), on the cuRobo sidecar.
 
 Scene-agnostic: obstacles are the depth of the planning frame integrated into the sidecar's ESDF (robot masked
 out by its own FK), and the held object travels as spheres fitted to its mesh, attached to tool0. Plans come from
