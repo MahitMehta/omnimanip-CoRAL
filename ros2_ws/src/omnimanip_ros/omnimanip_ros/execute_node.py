@@ -17,8 +17,9 @@ omnimanip.server sidecar (cuRobo behind it); kinematics are the planner's URDF (
 FoundationPose; the objects stay at their planned poses and the held one moves rigidly with the grasp.
 
 Every motion stops at a gate first (Enter = go, anything else = stop; --gate first: only the first move of each
-phase). Ctrl-C during a motion cancels the trajectory goal; the e-stop stays with the operator. Writes
-<run>/exec.json.
+phase), its path latched just before on /omnimanip/trajectory and its tool0 positions on /omnimanip/ee_path
+(nav_msgs/Path, base_link) for RViz. Ctrl-C during a motion cancels the trajectory goal; the e-stop stays with
+the operator. Writes <run>/exec.json.
 
     ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--controller scaled_joint_trajectory_controller]
 """
@@ -34,18 +35,21 @@ import cv2
 import numpy as np
 import rclpy
 from control_msgs.action import FollowJointTrajectory, GripperCommand
+from geometry_msgs.msg import PoseStamped
 from manip_bridge import DEPTH_TOPIC, INFO_TOPIC, RGB_TOPIC
 from manip_bridge.img import camera_info_to_K, image_to_depth_m, image_to_rgb
 from manip_bridge.zmq_client import SidecarClient
 from message_filters import ApproximateTimeSynchronizer, Subscriber
+from nav_msgs.msg import Path as NavPath
 from rclpy.action import ActionClient
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import CameraInfo, Image, JointState
+from std_msgs.msg import Header
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 UR_JOINTS = [
@@ -115,6 +119,11 @@ class Executor(Node):
             self, FollowJointTrajectory, f"/{controller}/follow_joint_trajectory"
         )
         self.grip = ActionClient(self, GripperCommand, "/gripper/gripper_cmd")
+        latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.pub_traj = self.create_publisher(
+            JointTrajectory, "/omnimanip/trajectory", latched
+        )
+        self.pub_ee = self.create_publisher(NavPath, "/omnimanip/ee_path", latched)
 
     def _on_joints(self, msg):
         if all(n in msg.name for n in UR_JOINTS):
@@ -177,17 +186,12 @@ class Executor(Node):
             time.sleep(0.01)
         return fut.result()
 
-    def send(self, Q, speed):
-        """Track joint path Q (UR order, Q[0] = where the robot is) timed by a minimum-jerk law over its joint-space
-        length, peak joint speed and acceleration speed * VMAX. Checks start and arrival."""
-        q = self.joints()
-        if np.abs(Q[0] - q).max() > START_TOL:
-            raise Stop(
-                f"path starts {np.abs(Q[0] - q).max():.3f} rad from the robot (stale plan)"
-            )
+    def timed(self, Q, speed):
+        """Joint path Q (UR order) timed by a minimum-jerk law over its joint-space length, peak joint speed and
+        acceleration speed * VMAX; None when Q does not move."""
         L = np.r_[0.0, np.cumsum(np.abs(np.diff(Q, axis=0)).max(1))]
         if L[-1] < 1e-4:
-            return
+            return None
         v = speed * VMAX
         T = max(
             1.875 * L[-1] / v, np.sqrt(5.774 * L[-1] / v), 0.5
@@ -207,6 +211,33 @@ class Executor(Node):
                     time_from_start=Duration(seconds=float(ti)).to_msg(),
                 )
             )
+        return msg
+
+    def show(self, Q, ee, speed):
+        """Latch a path before its gate: /omnimanip/trajectory as it will be sent, /omnimanip/ee_path its tool0
+        positions (RViz: a Path display, fixed frame base_link)."""
+        hdr = Header(frame_id="base_link", stamp=self.get_clock().now().to_msg())
+        msg = self.timed(Q, speed) or JointTrajectory(joint_names=UR_JOINTS)
+        msg.header = hdr
+        self.pub_traj.publish(msg)
+        path = NavPath(header=hdr)
+        for p in ee:
+            ps = PoseStamped(header=hdr)
+            ps.pose.position.x, ps.pose.position.y, ps.pose.position.z = map(float, p)
+            ps.pose.orientation.w = 1.0
+            path.poses.append(ps)
+        self.pub_ee.publish(path)
+
+    def send(self, Q, speed):
+        """Track joint path Q (Q[0] = where the robot is), timed as in timed(). Checks start and arrival."""
+        q = self.joints()
+        if np.abs(Q[0] - q).max() > START_TOL:
+            raise Stop(
+                f"path starts {np.abs(Q[0] - q).max():.3f} rad from the robot (stale plan)"
+            )
+        msg = self.timed(Q, speed)
+        if msg is None:
+            return
         if not self.traj.wait_for_server(timeout_sec=5.0):
             raise Stop(
                 "FollowJointTrajectory server not available (UR driver up? --controller?)"
@@ -310,19 +341,25 @@ def run(node, a, log):
         T[:3, :3] = T[:3, :3] @ Rc[name]
         return T
 
+    show = lambda Q: node.show(Q, [fk(q)[:3, 3] for q in Q], a.speed)
+
     def planned(what, goal, first, **kw):
         r = call("plan", q=list(node.joints()), goal=goal, **kw)
         if r["path"] is None:
             return None, r["reason"]
-        gate(a, f"{what}: planned path of {len(r['path'])} waypoints", first)
-        return np.asarray(r["path"], float), ""
+        Q = np.asarray(r["path"], float)
+        show(Q)
+        gate(a, f"{what}: planned path of {len(Q)} waypoints", first)
+        return Q, ""
 
     def straight(what, goal, gripper_note=""):
         r = call("line", q=list(node.joints()), goal=goal)
         if r["path"] is None:
             raise Stop(f"{what}: {r['reason']}")
+        Q = np.asarray(r["path"], float)
+        show(Q)
         gate(a, f"{what}: straight tool move{gripper_note}")
-        node.send(np.asarray(r["path"], float), a.speed)
+        node.send(Q, a.speed)
 
     # grasp primitive (supp. A.4 (a))
     call("map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap))

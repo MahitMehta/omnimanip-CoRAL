@@ -36,7 +36,7 @@ Planning, stages 1–16, as `omnimanip.run` stages: `perception` (1–10) → `p
 15. **Grasp** (`grasp`): AnyGrasp proposes grasps around the target object, a 1 cm Gaussian heatmap on the VLM's grasp-part dots keeps those with at least half the peak heat, and the highest-scoring of them gives the gripper-to-object transform Φ.
 16. **Target pose** (`targetpose`): SLSQP finds the gripper pose whose held object (through Φ) best meets the accepted constraint while keeping the gripper spheres 2 cm from the scene and moving as little as possible; accepted if ρ ≤ 0.05.
 
-Execution (O10), stages 17–20, runs the grasp and then the first interaction stage RRC accepted: `sim/execute.py` in sim, `omnimanip_ros execute` on the robot (UR driver trajectories, gripper-control's Robotiq action, FoundationPose tracking on live frames, an operator gate before every motion). Straight tool moves use IK on the planner's URDF, and every move is timed by a minimum-jerk law at 10 % of the joint limits.
+Execution (O10), stages 17–20, runs the grasp and then the first interaction stage RRC accepted: `sim/execute.py` in sim, `omnimanip_ros execute` on the robot (UR driver trajectories, gripper-control's Robotiq action, FoundationPose tracking on live frames, an operator gate before every motion, its path latched first on `/omnimanip/trajectory` and `/omnimanip/ee_path` for RViz). Straight tool moves use IK on the planner's URDF, and every move is timed by a minimum-jerk law at 10 % of the joint limits.
 
 17. **Grasp primitive**: move to 8 cm before the grasp pose along its approach axis (12 or 16 cm if that is refused), move straight in, close the Robotiq, lift 10 cm.
 18. **Interaction primitive**: one collision-free planned move of the gripper, carrying the held object, to the O9 target pose, held there (pour); place instead goes to |d| before the target along the passive axis, then straight in, and opens.
@@ -86,7 +86,7 @@ Everything runs on CoRAL (`ssh coral`) except the robot laptop's driver, camera 
    docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \
      ros2 run omnimanip_ros run_task --task "<instruction>" --out $RUNS_DIR'   # e.g. "Pour tea into the cup"; add --no-decide to skip the yaw decision
    ```
-7. **Execute**: 10 % speed, Enter at every motion (anything else stops; Ctrl-C cancels a motion). Writes `exec.json`.
+7. **Execute**: 10 % speed, Enter at every motion (anything else stops; Ctrl-C cancels a motion). Before each gate, check the path in RViz: a Path display on `/omnimanip/ee_path`, fixed frame `base_link`. Writes `exec.json`.
    ```bash
    docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \
      ros2 run omnimanip_ros execute --run $RUNS_DIR/$(ls -t $RUNS_DIR | head -1)'
