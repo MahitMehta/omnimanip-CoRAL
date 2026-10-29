@@ -19,7 +19,7 @@ A reimplementation of [OmniManip](https://arxiv.org/abs/2501.03841) on a UR5e wi
 
 Planning, stages 1–16, as `omnimanip.run` stages: `perception` (1–10) → `points` (11) → `directions` (12) → `constraints` (13) → `rrc` (14) → `grasp` (15) → `targetpose` (16). On the robot each stage is a typed service `/omnimanip/<stage>` (`omnimanip_interfaces`). The `bridge` node serves those services and forwards each call to our stage sidecar `omnimanip.server` (ZMQ, our Python 3.12 env); capture (1) runs in the bridge itself, on the live camera topics. `run_task` calls stages 1–16 and writes the same run directory as `omnimanip.run`, and `execute` then runs 17–20.
 
-1. **Capture** (`perception`): takes 10 frames, makes a per-pixel median depth, fits the table plane, and asks cuRobo which pixels are the robot.
+1. **Capture** (`perception`): takes 10 frames, makes a per-pixel median depth, fits the table plane, and asks cuRobo which pixels are the robot; a calibration check (`omnimanip.calib`) compares the table's height and tilt under the robot base with the hardware's and stops the run if the camera calibration moved, writing `calibration_check.png` (the arm's links projected onto the frame).
 2. **Marks**: SAM 3 segments everything as "object", and Albus's selection drops the table, arm, background and duplicates, leaving numbered masks on `marked.png`.
 3. **Stage split**: the VLM looks at `marked.png` and returns which mark IDs matter for the task, the stages (each an action from grasp, place, push, pull, rotate, pour, with an active and a passive object) and the interaction part on each object.
 4. **Mesh** (per task object): TRELLIS.2 builds a textured 3D mesh from the masked object crop, in a unit-size box.

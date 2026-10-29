@@ -19,6 +19,7 @@ import msgpack_numpy
 import numpy as np
 import zmq
 
+from . import calib
 from . import constraints as C
 from . import directions as D
 from . import grasp as G
@@ -53,11 +54,15 @@ def _fields(r, obj, element):
 
 
 def marks(r):
+    packet = json.loads(r["packet_json"])
+    cal = calib.save(r["run_dir"], r["rgb"], r["K"], packet)  # the first call after capture: stop before the slow stages
+    if not cal["ok"]:
+        raise RuntimeError("calibration check: " + "; ".join(cal["problems"]) + " (see calibration_check.png)")
     m, arm, report = S.marks(
         r["rgb"],
         r["depth"],
         r["K"],
-        json.loads(r["packet_json"]),
+        packet,
         r.get("robot_mask"),
         Path(r["run_dir"]) / "marks",
     )

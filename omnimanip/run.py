@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 import trimesh
 
+from . import calib
 from . import constraints as C
 from . import directions as D
 from . import grasp as G
@@ -109,6 +110,9 @@ def perception(r, a):
         S.sim_packet(a.sim) if a.sim else S.bag_packet(a.extracted, a.start)
     )
     laps("capture")
+    if not a.sim:  # the sim robot stands on a pedestal; on a bag, warn and go on (old bags carry old calibrations)
+        cal = calib.save(r.dir, rgb, K, packet)
+        print("calibration check:", "ok" if cal["ok"] else "; ".join(cal["problems"]))
     marks, arm, mrep = S.marks(rgb, depth, K, packet, rmask, r.dir / "marks")
     laps("marks")
     print("marks:", sorted(marks), "| packet degrades:", packet["degrades"])

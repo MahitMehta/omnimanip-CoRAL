@@ -37,28 +37,34 @@ TABLE_SIZE, TABLE_THICK = (
     2.0,
     0.10,
 )  # m: the table, its top on the fitted plane (covers the sidecar's 2 m map)
+TABLE_HOLE = 0.30  # m: square left open under the base, whose collision spheres reach 1.5 cm below base_link
 
 
 def cli(timeout_s=120):
     return SidecarClient(f"tcp://{HOST}:{SIDECARS['curobo']}", timeout_s * 1000)
 
 
-def table_box(plane, T_base_cam):
+def table_boxes(plane, T_base_cam):
     """The fitted table plane (camera frame n, d; packet["plane"]) as a TABLE_SIZE square slab TABLE_THICK deep in the
-    base frame, top face on the plane, centred under the base, so the table is an obstacle beyond the camera's view."""
+    base frame, top face on the plane, so the table is an obstacle beyond the camera's view: four boxes framing a
+    TABLE_HOLE square under the base, which never moves, so a table fit near or above its lowest spheres (a
+    centimetre of calibration) doesn't put the arm in collision before it moves."""
     n = T_base_cam[:3, :3] @ np.asarray(plane["n"], float)
     d = float(plane["d"]) - n @ T_base_cam[:3, 3]  # base frame: n . x + d = 0
     n, d = (n, d) if n[2] > 0 else (-n, -d)  # n up, out of the table
     x = np.cross([0.0, 1, 0], n)
     x /= np.linalg.norm(x)
-    T = np.eye(4)
-    T[:3, :3] = np.c_[x, np.cross(n, x), n]
-    T[:3, 3] = -(d / n[2]) * np.array([0, 0, 1.0]) - TABLE_THICK / 2 * n
-    return {
-        "name": "table",
-        "dims": [TABLE_SIZE, TABLE_SIZE, TABLE_THICK],
-        "pose": T.astype(np.float32),
-    }
+    R = np.c_[x, np.cross(n, x), n]
+    o = -(d / n[2]) * np.array([0, 0, 1.0]) - TABLE_THICK / 2 * n  # slab centre under the base origin
+    a, h = TABLE_SIZE / 2, TABLE_HOLE / 2
+    boxes = []
+    for k, (cx, cy, sx, sy) in enumerate(
+        [((a + h) / 2, 0, a - h, 2 * a), (-(a + h) / 2, 0, a - h, 2 * a), (0, (a + h) / 2, 2 * h, a - h), (0, -(a + h) / 2, 2 * h, a - h)]
+    ):
+        T = np.eye(4)
+        T[:3, :3], T[:3, 3] = R, o + R @ [cx, cy, 0]
+        boxes.append({"name": f"table_{k}", "dims": [sx, sy, TABLE_THICK], "pose": T.astype(np.float32)})
+    return boxes
 
 
 def map_scene(depth, K, T_base_cam, q, exclude=None, plane=None):
@@ -84,7 +90,7 @@ def map_scene(depth, K, T_base_cam, q, exclude=None, plane=None):
         c.call(
             {
                 "cmd": "static_cuboids",
-                "cuboids": [table_box(plane, np.asarray(T_base_cam, float))],
+                "cuboids": table_boxes(plane, np.asarray(T_base_cam, float)),
             }
         )
 
