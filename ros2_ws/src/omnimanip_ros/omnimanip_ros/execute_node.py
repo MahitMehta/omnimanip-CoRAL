@@ -250,8 +250,11 @@ class Executor(Node):
             raise Stop("trajectory goal rejected")
         try:
             res = self._wait(gh.get_result_async(), "result").result
-        except KeyboardInterrupt:
-            gh.cancel_goal_async()
+        except KeyboardInterrupt:  # stop the arm before exiting: wait (2 s at most) for the driver to take the cancel
+            fut, t_end = gh.cancel_goal_async(), time.time() + 2.0
+            while not fut.done() and time.time() < t_end:
+                time.sleep(0.01)
+            print("exec: trajectory cancel " + ("acknowledged" if fut.done() else "NOT acknowledged -- use the e-stop"))
             raise
         if res.error_code != 0:
             raise Stop(
