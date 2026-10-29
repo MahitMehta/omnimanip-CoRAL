@@ -38,7 +38,7 @@ Planning, stages 1–16, as `omnimanip.run` stages: `perception` (1–10) → `p
 
 Execution (O10), stages 17–20, runs the grasp and then the first interaction stage RRC accepted: `sim/execute.py` in sim, `omnimanip_ros execute` on the robot (UR driver trajectories, gripper-control's Robotiq action, FoundationPose tracking on live frames, an operator gate before every motion). Straight tool moves use IK on the planner's URDF, and every move is timed by a minimum-jerk law at 10 % of the joint limits.
 
-17. **Grasp primitive**: move to 8 cm before the grasp pose along its approach axis (12 or 16 cm if that is refused), move straight in, close the Robotiq, lift 5 cm.
+17. **Grasp primitive**: move to 8 cm before the grasp pose along its approach axis (12 or 16 cm if that is refused), move straight in, close the Robotiq, lift 10 cm.
 18. **Interaction primitive**: one collision-free planned move of the gripper, carrying the held object, to the O9 target pose, held there (pour); place instead goes to |d| before the target along the passive axis, then straight in, and opens.
 19. **Closed-loop tracking**: FoundationPose tracks the active and passive objects on live frames, and O9 is re-solved on every update (Φ re-measured from the tracked active object) until the gripper is within 2 cm of the target, re-planning when the target moves 1 cm / 3°.
 20. **Motion** (`omnimanip/motion.py`): cuRobo maps the planning frame's depth (robot masked out) and attaches the held object as covering spheres fitted to its mesh. Its MotionPlanner plans a collision-free joint path (5 mm buffer) to each pose, on our own cuRobo container. The goal is the IK solution nearest the current branch, with joints wrapped the short way round.

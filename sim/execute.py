@@ -1,7 +1,7 @@
 """OmniManip execution in the sim (paper Sec. 3.3 closed-loop execution; supp. A.4 primitives; onboarding notes O10)
 for a planned run (python -m omnimanip.run --sim ... --gt).
 
-  grasp  move to 8 cm in front of the grasp pose, move forward, close (supp. A.4 (a)), lift 5 cm (DEVIATIONS #33)
+  grasp  move to 8 cm in front of the grasp pose, move forward, close (supp. A.4 (a)), lift 10 cm (DEVIATIONS #33)
   pour   move to the O9 target pose (supp. A.4 (f)); hold there
   place  move to v cm in front of the O9 target pose, move to the target, open the gripper (supp. A.4 (b); v = |d|, O10)
   Both: the target is re-solved on every tracker update, with Phi re-measured from the tracked active pose, until
@@ -57,7 +57,7 @@ REPLAN_T, REPLAN_R = (
     np.radians(3),
 )  # re-plan when a re-solved target moves this far
 CHUNK = 8  # path waypoints tracked per tracker update
-LIFT = 0.05  # m straight up after the grasp closes, so the planned move to the target starts out of contact
+LIFT = 0.10  # m straight up after the grasp closes, so the planned move to the target starts out of contact
 SPHERE_MARGIN = 0.0  # m added to the held object's sphere radii: the covering spheres already enclose the mesh and
 # cuRobo's 5 mm activation distance is the buffer (5 mm here put tight pour poses themselves in collision)
 SETTLE_MM, SETTLE_STEPS = (

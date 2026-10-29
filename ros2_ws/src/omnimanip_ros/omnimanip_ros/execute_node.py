@@ -2,7 +2,7 @@
 O10) for a run_task run: the hardware counterpart of sim/execute.py, same primitives and loop.
 
   grasp  cuRobo move to 8 cm in front of the grasp pose (12 / 16 cm if refused), straight in, close, straight
-         5 cm up (DEVIATIONS #33)
+         10 cm up (DEVIATIONS #33)
   pour   cuRobo move to the O9 target pose carrying the object; hold
   place  cuRobo move to v = |d| in front of the target along the passive axis, straight to the target, open
   The target is re-solved on every tracker update (Phi re-measured from the tracked active pose) until the EE is
@@ -59,7 +59,7 @@ UR_JOINTS = [
 OMNI_ADDR = os.environ.get("OMNIMANIP_ADDR", "tcp://127.0.0.1:5690")
 POSE_ADDR = os.environ.get("POSE_ADDR", "tcp://127.0.0.1:5667")
 PRE_GRASP = (0.08, 0.12, 0.16)  # m; as sim/execute.py
-LIFT = 0.05  # m straight up after closing (DEVIATIONS #33)
+LIFT = 0.10  # m straight up after closing (DEVIATIONS #33)
 RESOLVE_STOP = 0.02  # m (O10)
 REPLAN_T, REPLAN_R = 0.01, np.radians(3)
 CHUNK = 8  # planned waypoints sent per tracker update
