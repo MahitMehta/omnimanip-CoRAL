@@ -211,7 +211,7 @@ def grasp(r):
         "score": float(rep["scores"][i]),
         "n": int(rep["n"]),
         "index": i,
-        "overlay": G.overlay(r["rgb"], r["K"], rep, p_cam, T_g),
+        "overlay": G.overlay(r["rgb"], r["K"], rep, p_cam, i, T[:3, 2]),
     }
 
 

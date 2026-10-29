@@ -72,9 +72,10 @@ def choose(rep, cam_T_can, grasp_points_can):
     return i, T_g, np.linalg.inv(T_g) @ cam_T_can, p_cam, h
 
 
-def overlay(rgb, K, rep, p_cam, T_g):
-    """Candidate centres (grey), grasp points (blue), the chosen grasp's centre with its approach (x, red) and
-    closing (y, green) axes."""
+def overlay(rgb, K, rep, p_cam, i, up):
+    """Candidate centres (grey), grasp points (blue), and grasp i: its two jaws (green) at +-width/2 along the
+    closing axis y, from 2 cm behind the centre to the tips `depth` past it, the opening between them (yellow), the
+    approach (x, red) into the palm, and a label with the pinch's tilt from the table (`up` = table normal)."""
     im = rgb.copy()
     for t in np.round(
         viz.project(K, np.eye(4), np.asarray(rep["translations"]))
@@ -82,22 +83,26 @@ def overlay(rgb, K, rep, p_cam, T_g):
         cv2.circle(im, (int(t[0]), int(t[1])), 3, (160, 160, 160), -1)
     for q in np.round(viz.project(K, np.eye(4), p_cam)).astype(int):
         cv2.circle(im, (int(q[0]), int(q[1])), 6, (0, 0, 255), -1)
-    c, ax, cl = np.round(
-        viz.project(K, T_g, np.array([[0, 0, 0], [-0.06, 0, 0], [0, 0.04, 0]]))
-    ).astype(int)
-    cv2.arrowedLine(
+    T_g, w, d = pose(rep, i), float(rep["widths"][i]), float(rep["depths"][i])
+    px = lambda X: [
+        tuple(int(v) for v in p) for p in np.round(viz.project(K, T_g, np.array(X)))
+    ]
+    for s in (-1, 1):  # jaw: palm side to fingertip
+        a, b = px([[-0.02, s * w / 2, 0], [d, s * w / 2, 0]])
+        cv2.line(im, a, b, (0, 200, 0), 4)
+    a, b = px([[0, -w / 2, 0], [0, w / 2, 0]])
+    cv2.line(im, a, b, (220, 220, 0), 1)
+    a, b = px([[-0.08, 0, 0], [-0.02, 0, 0]])
+    cv2.arrowedLine(im, a, b, (255, 0, 0), 2, tipLength=0.3)
+    tilt = np.degrees(np.arcsin(min(1.0, abs(float(T_g[:3, 1] @ up)))))
+    kind = "vertical" if tilt > 60 else "horizontal" if tilt < 30 else "diagonal"
+    cv2.putText(
         im,
-        (int(ax[0]), int(ax[1])),
-        (int(c[0]), int(c[1])),
-        (255, 0, 0),
-        2,
-        tipLength=0.25,
-    )
-    cv2.line(
-        im,
-        (int(2 * c[0] - cl[0]), int(2 * c[1] - cl[1])),
-        (int(cl[0]), int(cl[1])),
-        (0, 200, 0),
+        f"{kind} pinch ({tilt:.0f} deg from table)  width {w * 100:.1f} cm  score {rep['scores'][i]:.3f}",
+        (8, 22),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (255, 255, 255),
         2,
     )
     return im

@@ -419,7 +419,7 @@ def grasp(r, a):
                 "grasp_points_cam": p_cam,
             }
         )
-        im = G.overlay(im, r.K, rep, p_cam, T_g)
+        im = G.overlay(im, r.K, rep, p_cam, i, r.T(name)[:3, 2])
 
         # heatmap image: the object's observed surface coloured by heat (0 = none, 1 = max over the object), candidate
         # centres coloured the same way (white ring = kept by the 0.5 x max filter), chosen grasp as a large ring
