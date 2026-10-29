@@ -16,6 +16,7 @@ MARGIN, CONTEXT = (
     0.15,
 )  # m: lims box around the object; table context sent for collision checking
 SIGMA, KEEP = 0.01, 0.5  # heatmap Gaussian (m); keep candidates with heat >= KEEP * max
+TABLE_CLEAR, PRE_GRASP_MAX = 0.02, 0.16  # m: gripper clearance above the table; execute's farthest pre-grasp
 
 
 def backproject(depth, K, sel):
@@ -42,17 +43,45 @@ def anygrasp(rgb, depth, K, mask):
     )
 
 
+def feasible(rep, depth, K, mask, plane):
+    """Real-gripper check (DEVIATIONS #27): the Robotiq spheres at each candidate (fingers at width + 1 cm, placed
+    as in mesh_grasps) stay TABLE_CLEAR above the table plane at the grasp and at PRE_GRASP_MAX back along the
+    approach (height is linear along the straight approach, so the two ends cover every pre-grasp); at the grasp
+    the palm also clears the scene cloud and the fingers clear every other object. -> bool per candidate."""
+    from scipy.spatial import KDTree
+
+    g, n_pl, d_pl = gripper.GRIPPER, np.asarray(plane["n"], float), float(plane["d"])
+    valid = (depth > 0.05) & (depth < 3.0)
+    scene, _ = backproject(depth, K, valid)
+    others, _ = backproject(depth, K, valid & ~mask)
+    off = lambda P: np.abs(P @ n_pl + d_pl) >= 0.01  # the table itself is checked analytically
+    t_scene, t_others = KDTree(scene[off(scene)]), KDTree(others[off(others)])
+    ok = np.zeros(rep["n"], bool)
+    for i in range(rep["n"]):
+        R, t, d = rep["rotations"][i], rep["translations"][i], float(rep["depths"][i])
+        S = gripper.spheres(g, min(float(rep["widths"][i]) + 0.01, g.max_width))
+        palm = S[:, 3] > 0.02
+        C = S[:, :3] @ R.T + t + d * R[:, 0]
+        ok[i] = (
+            all(((P @ n_pl + d_pl) - S[:, 3] >= TABLE_CLEAR).all() for P in (C, C - PRE_GRASP_MAX * R[:, 0]))
+            and (t_scene.query(C[palm])[0] > S[palm, 3]).all()
+            and (t_others.query(C[~palm])[0] > S[~palm, 3]).all()
+        )
+    return ok
+
+
 def heat(x, grasp_points_cam):
     """Heatmap at 3D points x (N, 3): sum_i exp(-|x - p_i|^2 / 2 sigma^2) over the VLM grasp points."""
     d2 = ((np.asarray(x)[:, None, :] - np.asarray(grasp_points_cam)[None]) ** 2).sum(-1)
     return np.exp(-d2 / (2 * SIGMA**2)).sum(1)
 
 
-def select(rep, grasp_points_cam):
+def select(rep, grasp_points_cam, ok=None):
     """Heatmap filter: heat(t) = sum_i exp(-|t - p_i|^2 / 2 sigma^2) at each grasp's centre; keep heat >= KEEP *
-    max heat; take the highest AnyGrasp score among those. -> (index, heats)."""
+    max heat among the `ok` candidates (all if None); take the highest AnyGrasp score among those. -> (index, heats)."""
     h = heat(rep["translations"], grasp_points_cam)
-    keep = np.flatnonzero(h >= KEEP * h.max())
+    ok = np.ones(len(h), bool) if ok is None else np.asarray(ok)
+    keep = np.flatnonzero(ok & (h >= KEEP * h[ok].max()))
     return int(keep[np.argmax(np.asarray(rep["scores"])[keep])]), h
 
 
@@ -63,11 +92,11 @@ def pose(rep, i):
     return T
 
 
-def choose(rep, cam_T_can, grasp_points_can):
-    """The heatmap pick for the object's VLM grasp points (canonical). -> (index, cam_T_grasp, Phi, grasp points in
-    the camera frame, heats); Phi = grasp -> canonical, so P_active = P_grasp . Phi (Eq. 3)."""
+def choose(rep, cam_T_can, grasp_points_can, ok=None):
+    """The heatmap pick among the `ok` candidates for the object's VLM grasp points (canonical). -> (index,
+    cam_T_grasp, Phi, grasp points in the camera frame, heats); Phi = grasp -> canonical, so P_active = P_grasp . Phi (Eq. 3)."""
     p_cam = np.asarray(grasp_points_can) @ cam_T_can[:3, :3].T + cam_T_can[:3, 3]
-    i, h = select(rep, p_cam)
+    i, h = select(rep, p_cam, ok)
     T_g = pose(rep, i)
     return i, T_g, np.linalg.inv(T_g) @ cam_T_can, p_cam, h
 

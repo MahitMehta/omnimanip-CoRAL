@@ -299,6 +299,7 @@ def run(node, task, run, decide=True):
             camera_info=info,
             object=models[name],
             grasp_points=[conv.point(q) for q in pts[name, "grasp"]["points"]],
+            table_plane=[float(x) for x in packet["plane"]["n"]] + [float(packet["plane"]["d"])],
         )
         _save(g.overlay, run / "grasp" / f"grasp_overlay_{name}.png")
         grasps[name] = g
@@ -307,6 +308,7 @@ def run(node, task, run, decide=True):
             {
                 "object": n,
                 "n": g.n_candidates,
+                "n_feasible": g.n_feasible,
                 "index": g.index,
                 "score": g.score,
                 "width": g.width,

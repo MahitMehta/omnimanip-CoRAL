@@ -389,6 +389,7 @@ def grasp(r, a):
         name = s["passive_object_ID"]
         o, mask = r.objects[name], r.mask(name)
         gp = next(x for x in pts if x["object"] == name and x["kind"] == "grasp")
+        ok = None  # sim: mesh_grasps already checks its own grasps against the table and object
         if a.sim_mesh_grasps:
             V, F = S.read_obj(Path(o["final_mesh"]))
             rep = G.mesh_grasps(
@@ -399,7 +400,12 @@ def grasp(r, a):
         if not rep["n"]:
             print(f"{name}: AnyGrasp returned no grasps")
             continue
-        i, T_g, phi, p_cam, heat = G.choose(rep, r.T(name), gp["points"])
+        if not a.sim_mesh_grasps:
+            ok = G.feasible(rep, r.depth, r.K, mask, r.json("packet.json")["plane"])
+            print(f"{name}: {ok.sum()} of {rep['n']} grasps pass the real-gripper check")
+            if not ok.any():
+                continue
+        i, T_g, phi, p_cam, heat = G.choose(rep, r.T(name), gp["points"], ok)
         dist = np.linalg.norm(rep["translations"][i] - p_cam, axis=1).min()
         print(
             f"{name}: {rep['n']} grasps; chosen #{i} score {rep['scores'][i]:.3f} (best score {rep['scores'][0]:.3f}),"
@@ -409,6 +415,7 @@ def grasp(r, a):
             {
                 "object": name,
                 "n": rep["n"],
+                "n_feasible": None if ok is None else int(ok.sum()),
                 "index": i,
                 "score": rep["scores"][i],
                 "width": rep["widths"][i],

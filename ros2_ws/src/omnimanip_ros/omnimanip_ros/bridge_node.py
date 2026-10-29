@@ -239,13 +239,14 @@ class Bridge(Node):
             K=camera_info_to_K(req.camera_info),
             object=conv.obj_of(req.object),
             grasp_points=np.array([conv.xyz(p) for p in req.grasp_points]),
+            table_plane={"n": list(req.table_plane[:3]), "d": float(req.table_plane[3])},
         )
         res.cam_t_grasp, res.grasp_t_obj = (
             conv.pose_of(r["cam_T_grasp"]),
             conv.pose_of(r["phi"]),
         )
         res.width, res.depth, res.score = r["width"], r["depth"], r["score"]
-        res.n_candidates, res.index = int(r["n"]), int(r["index"])
+        res.n_candidates, res.n_feasible, res.index = int(r["n"]), int(r["n_feasible"]), int(r["index"])
         res.overlay = conv.rgb_msg(r["overlay"], req.rgb.header)
 
     # 16

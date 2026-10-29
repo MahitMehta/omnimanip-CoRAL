@@ -202,7 +202,10 @@ def grasp(r):
     rep = G.anygrasp(r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0)
     if not rep["n"]:
         raise RuntimeError("AnyGrasp returned no grasps")
-    i, T_g, phi, p_cam, _ = G.choose(rep, T, r["grasp_points"])
+    ok = G.feasible(rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"])
+    if not ok.any():
+        raise RuntimeError(f"none of AnyGrasp's {rep['n']} grasps passes the real-gripper check")
+    i, T_g, phi, p_cam, _ = G.choose(rep, T, r["grasp_points"], ok)
     return {
         "cam_T_grasp": T_g,
         "phi": phi,
@@ -210,6 +213,7 @@ def grasp(r):
         "depth": float(rep["depths"][i]),
         "score": float(rep["scores"][i]),
         "n": int(rep["n"]),
+        "n_feasible": int(ok.sum()),
         "index": i,
         "overlay": G.overlay(r["rgb"], r["K"], rep, p_cam, i, T[:3, 2]),
     }
