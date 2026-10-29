@@ -244,6 +244,10 @@ def run(node, task, run, decide=True):
         A, Pv = s.active_object, s.passive_object
         if s.action == "grasp":
             continue
+        if A not in models or Pv not in models:  # e.g. "place on the table": a surface has no mark, mesh or point
+            missing = [o for o in (A, Pv) if o not in models]
+            node.get_logger().warn(f"{s.action}: skipped, {', '.join(missing)} has no mark (a surface, or not detected)")
+            continue
         K = node.call(
             "build_constraints",
             active_point=conv.point(pts[A, s.action]["point"]),
