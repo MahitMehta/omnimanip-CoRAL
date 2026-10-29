@@ -387,7 +387,7 @@ def run(node, a, log):
     straight("approach", tool0(T_g))
     gate(a, "close the gripper")
     log["grasp"]["close"] = r = node.gripper(CLOSE_GAP, a.effort)
-    if not r["stalled"]:
+    if not r["stalled"] and not a.skip_grip_check:
         raise Stop(
             f"gripper closed without an object (gap {r['position'] * 1000:.1f} mm)"
         )
@@ -515,6 +515,12 @@ def main():
     )
     ap.add_argument("--controller", default="scaled_joint_trajectory_controller")
     ap.add_argument("--gate", choices=("all", "first", "none"), default="all")
+    ap.add_argument(
+        "--skip-grip-check",
+        action="store_true",
+        help="go on after the close whatever the gripper reports (gripper-control's URCap reply can be one move "
+        "behind); the operator checks the grasp at the lift's gate",
+    )
     ap.add_argument(
         "--mock-tracking",
         action="store_true",
