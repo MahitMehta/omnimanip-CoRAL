@@ -261,7 +261,7 @@ def targetpose(r):
 
 # execution (stages 17-20; the hardware executor omnimanip_ros execute): base-frame motion on the cuRobo sidecar
 def map_(r):
-    motion.map_scene(r["depth"], r["K"], r["T_base_cam"], r["q"], r.get("exclude"))
+    motion.map_scene(r["depth"], r["K"], r["T_base_cam"], r["q"], r.get("exclude"), r.get("plane"))
     return {}
 
 

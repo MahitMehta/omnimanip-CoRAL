@@ -33,15 +33,37 @@ LINE_STEP_T, LINE_STEP_R = (
 )  # straight tool moves: an IK waypoint every 5 mm / 1 deg
 MAX_JUMP = 0.2  # rad: a larger joint change between line waypoints is a branch flip or a singularity
 N_SPHERES = 256  # the robot model's attached_object slots (raised from 16 in our model copy: ~11 mm spheres hug the surface)
+TABLE_SIZE, TABLE_THICK = (
+    2.0,
+    0.10,
+)  # m: the table, its top on the fitted plane (covers the sidecar's 2 m map)
 
 
 def cli(timeout_s=120):
     return SidecarClient(f"tcp://{HOST}:{SIDECARS['curobo']}", timeout_s * 1000)
 
 
-def map_scene(depth, K, T_base_cam, q, exclude=None):
+def table_box(plane, T_base_cam):
+    """The fitted table plane (camera frame n, d; packet["plane"]) as a TABLE_SIZE square slab TABLE_THICK deep in the
+    base frame, top face on the plane, centred under the base, so the table is an obstacle beyond the camera's view."""
+    n = T_base_cam[:3, :3] @ np.asarray(plane["n"], float)
+    d = float(plane["d"]) - n @ T_base_cam[:3, 3]  # base frame: n . x + d = 0
+    n, d = (n, d) if n[2] > 0 else (-n, -d)  # n up, out of the table
+    x = np.cross([0.0, 1, 0], n)
+    x /= np.linalg.norm(x)
+    T = np.eye(4)
+    T[:3, :3] = np.c_[x, np.cross(n, x), n]
+    T[:3, 3] = -(d / n[2]) * np.array([0, 0, 1.0]) - TABLE_THICK / 2 * n
+    return {
+        "name": "table",
+        "dims": [TABLE_SIZE, TABLE_SIZE, TABLE_THICK],
+        "pose": T.astype(np.float32),
+    }
+
+
+def map_scene(depth, K, T_base_cam, q, exclude=None, plane=None):
     """Rebuild the ESDF from one depth frame: robot pixels removed by the sidecar (load_robot + q), `exclude`
-    pixels (e.g. the held object) zeroed first."""
+    pixels (e.g. the held object) zeroed first; with `plane`, the table box in the static channel (DEVIATIONS #33)."""
     c = cli()
     c.call({"cmd": "load_robot"})
     c.call({"cmd": "reset"})
@@ -56,6 +78,15 @@ def map_scene(depth, K, T_base_cam, q, exclude=None):
             "joint_names": UR_JOINTS,
         }
     )
+    if (
+        plane is not None
+    ):  # after the depth, as cuRobo's volumetric_mapping example stamps its static obstacles
+        c.call(
+            {
+                "cmd": "static_cuboids",
+                "cuboids": [table_box(plane, np.asarray(T_base_cam, float))],
+            }
+        )
 
 
 def attached_spheres(V, F, tool0_T_obj, margin=0.0, n_samples=12000, seed=0):

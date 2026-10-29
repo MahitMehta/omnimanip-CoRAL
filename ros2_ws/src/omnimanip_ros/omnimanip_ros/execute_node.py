@@ -362,7 +362,7 @@ def run(node, a, log):
         node.send(Q, a.speed)
 
     # grasp primitive (supp. A.4 (a))
-    call("map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap))
+    call("map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap), plane=packet["plane"])
     gate(a, "open the gripper")
     log["grasp"]["open"] = node.gripper(OPEN_GAP, a.effort)
     T_g = np.asarray(grasp["cam_T_grasp"], float)
@@ -403,7 +403,9 @@ def run(node, a, log):
         )
         > 0
     )
-    call("map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap), exclude=grown)
+    call(
+        "map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap), exclude=grown, plane=packet["plane"]
+    )
     exclude = np.any(list(masks.values()), axis=0)
     mesh = objects[A]["final_mesh"]
 
