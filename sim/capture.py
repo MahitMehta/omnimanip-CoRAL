@@ -49,7 +49,16 @@ ap.add_argument(
     default=0.0,
     help="deg: pitch the camera up from the real camera's tilt",
 )
+ap.add_argument(
+    "--camera-from",
+    default=None,
+    help="a JSON with base_link_T_cam, K and cam_height_above_table (a real run's camera) in place of the constants",
+)
 a = ap.parse_args()
+if a.camera_from:
+    c = json.loads(Path(a.camera_from).read_text())
+    BASE_LINK_T_CAM = np.array(c["base_link_T_cam"], float)
+    CAM_HEIGHT, FY = float(c["cam_height_above_table"]), float(c["K"][1][1])
 out = Path(a.out)
 out.mkdir(parents=True, exist_ok=True)
 

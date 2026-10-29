@@ -99,6 +99,7 @@ meta = json.loads((Path(a.frame) / "meta.json").read_text())
 objects = json.loads((run / "objects.json").read_text())
 grasp = json.loads((run / "grasp" / "grasp.json").read_text())[0]
 stage = json.loads((run / "rrc" / "rrc.json").read_text())[0]
+plane = json.loads((run / "packet.json").read_text())["plane"]  # the table slab in cuRobo's map, as on the robot
 c = {
     k: np.asarray(v) if isinstance(v, list) else v for k, v in stage["accepted"].items()
 }
@@ -275,7 +276,7 @@ masks = {
 q_cap = np.array(
     meta["joints"]["q"]
 )  # the arm when the planning frame was captured (robot masking)
-motion.map_scene(depth0, meta["K"], B_C, q_cap)
+motion.map_scene(depth0, meta["K"], B_C, q_cap, plane=plane)
 
 # grasp primitive: pre-grasp (planned), forward (Cartesian), close
 T_g = np.array(grasp["cam_T_grasp"])
@@ -341,7 +342,7 @@ grown = (
     cv2.dilate(masks[A].astype(np.uint8), np.ones((2 * MASK_GROW + 1,) * 2, np.uint8))
     > 0
 )
-motion.map_scene(depth0, meta["K"], B_C, q_cap, exclude=grown)
+motion.map_scene(depth0, meta["K"], B_C, q_cap, exclude=grown, plane=plane)
 Rc = np.eye(4)  # canonical -> body (the mesh is in the body frame)
 Rc[:3, :3] = np.array(objects[A]["canonical_frame"]["R_body_from_canon"])
 V, F = read_obj(Path(objects[A]["final_mesh"]))
