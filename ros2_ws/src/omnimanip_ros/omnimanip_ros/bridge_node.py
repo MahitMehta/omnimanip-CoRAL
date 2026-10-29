@@ -240,6 +240,8 @@ class Bridge(Node):
             object=conv.obj_of(req.object),
             grasp_points=np.array([conv.xyz(p) for p in req.grasp_points]),
             table_plane={"n": list(req.table_plane[:3]), "d": float(req.table_plane[3])},
+            base_T_cam=np.asarray(req.base_t_cam, float).reshape(4, 4),
+            q=list(req.q),
         )
         res.cam_t_grasp, res.grasp_t_obj = (
             conv.pose_of(r["cam_T_grasp"]),

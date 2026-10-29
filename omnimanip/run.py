@@ -18,6 +18,7 @@ import trimesh
 from . import constraints as C
 from . import directions as D
 from . import grasp as G
+from . import motion
 from . import perception as P
 from . import points as Pt
 from . import rrc as R
@@ -400,9 +401,15 @@ def grasp(r, a):
         if not rep["n"]:
             print(f"{name}: AnyGrasp returned no grasps")
             continue
-        if not a.sim_mesh_grasps:
-            ok = G.feasible(rep, r.depth, r.K, mask, r.json("packet.json")["plane"])
-            print(f"{name}: {ok.sum()} of {rep['n']} grasps pass the real-gripper check")
+        if not a.sim_mesh_grasps:  # the real-gripper check, near the dots, reachable from the capture joints
+            pk = r.json("packet.json")
+            T = r.T(name)
+            jn = [n.removeprefix("robot0_") for n in pk["joints"]["names"]]  # sim joints carry robosuite's prefix
+            ok, counts = G.candidates(
+                rep, r.depth, r.K, mask, pk["plane"], np.asarray(gp["points"]) @ T[:3, :3].T + T[:3, 3],
+                np.asarray(pk["t_base_cam"]["T"], float), [pk["joints"]["q"][jn.index(n)] for n in motion.UR_JOINTS],
+            )
+            print(f"{name}: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
             if not ok.any():
                 continue
         i, T_g, phi, p_cam, heat = G.choose(rep, r.T(name), gp["points"], ok)

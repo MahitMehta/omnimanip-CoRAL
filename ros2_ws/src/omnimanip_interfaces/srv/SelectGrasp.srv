@@ -5,6 +5,8 @@ sensor_msgs/CameraInfo camera_info
 ObjectModel object
 geometry_msgs/Point[] grasp_points   # canonical frame (ProposePoints, kind "grasp")
 float64[4] table_plane               # camera frame n (3), d (packet plane): real-gripper check
+float64[16] base_t_cam               # capture's camera in base_link, row-major (packet t_base_cam): reachability
+float64[6] q                         # capture joints, UR order: reachability
 ---
 bool success
 string message
@@ -14,6 +16,6 @@ float64 width
 float64 depth
 float64 score
 int32 n_candidates
-int32 n_feasible                     # candidates passing the real-gripper check
+int32 n_feasible                     # candidates passing the real-gripper check, near the dots and reachable
 int32 index
 sensor_msgs/Image overlay

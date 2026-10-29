@@ -24,6 +24,14 @@ from rclpy.node import Node
 
 from . import conv
 
+UR_JOINTS = [  # as execute_node
+    "shoulder_pan_joint",
+    "shoulder_lift_joint",
+    "elbow_joint",
+    "wrist_1_joint",
+    "wrist_2_joint",
+    "wrist_3_joint",
+]
 SERVICES = {
     "capture": srv.Capture,
     "marks": srv.Marks,
@@ -300,6 +308,8 @@ def run(node, task, run, decide=True):
             object=models[name],
             grasp_points=[conv.point(q) for q in pts[name, "grasp"]["points"]],
             table_plane=[float(x) for x in packet["plane"]["n"]] + [float(packet["plane"]["d"])],
+            base_t_cam=[float(x) for x in np.asarray(packet["t_base_cam"]["T"], float).ravel()],
+            q=[float(packet["joints"]["q"][packet["joints"]["names"].index(n)]) for n in UR_JOINTS],
         )
         _save(g.overlay, run / "grasp" / f"grasp_overlay_{name}.png")
         grasps[name] = g

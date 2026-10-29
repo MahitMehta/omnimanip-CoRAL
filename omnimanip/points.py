@@ -17,6 +17,7 @@ GRID = (
 )  # rows, cols: the size of the paper's real-crop examples (supp. Figs. 12-14); real crops scale it to their shape
 MIN_CROP_PX = 512  # real crops whose long side is shorter are upscaled before gridding (thin / far objects)
 CROP_MARGIN = 0.3  # of the mask bbox per side; the paper's crops show this much context
+GRASP_CROP_MARGIN = 0.1  # grasp dots: a tighter crop puts more of the 8-wide grid on the object (DEVIATIONS #14)
 DEPTH_WIN = 5  # px radius for the median depth around a selected dot
 FG_TOL = 0.02  # m: window depths this close to the nearest one are the object (thin parts bleed background)
 VIEW_PX = 512
@@ -192,9 +193,9 @@ def invisible_point(mesh_can, **fields):
     return {"point": p, "dot": dots_sel, "vlm": reps, "images": images}
 
 
-def grasp_points(rgb, depth, K, mask, cam_T_can, **fields):
+def grasp_points(rgb, depth, K, mask, cam_T_can, margin=GRASP_CROP_MARGIN, **fields):
     """Grasp part: several dots on the object (only on-mask dots drawn), each lifted with depth."""
-    im, m, (x0, y0) = crop(rgb, mask)
+    im, m, (x0, y0) = crop(rgb, mask, margin)
     g, dots, grid = gridded_crop(im, m)
     rep = vlm.query("grasp_points", [g], rows=grid[0], cols=grid[1], **fields)
     sel = [tuple(d) for d in rep["Selected dots"] if tuple(d) in dots]

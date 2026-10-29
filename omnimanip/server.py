@@ -202,9 +202,12 @@ def grasp(r):
     rep = G.anygrasp(r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0)
     if not rep["n"]:
         raise RuntimeError("AnyGrasp returned no grasps")
-    ok = G.feasible(rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"])
+    p_cam = np.asarray(r["grasp_points"]) @ T[:3, :3].T + T[:3, 3]
+    ok, counts = G.candidates(
+        rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"], p_cam, r["base_T_cam"], r["q"]
+    )
     if not ok.any():
-        raise RuntimeError(f"none of AnyGrasp's {rep['n']} grasps passes the real-gripper check")
+        raise RuntimeError("no AnyGrasp grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
     i, T_g, phi, p_cam, _ = G.choose(rep, T, r["grasp_points"], ok)
     return {
         "cam_T_grasp": T_g,

@@ -17,6 +17,8 @@ MARGIN, CONTEXT = (
 )  # m: lims box around the object; table context sent for collision checking
 SIGMA, KEEP = 0.01, 0.5  # heatmap Gaussian (m); keep candidates with heat >= KEEP * max
 TABLE_CLEAR, PRE_GRASP_MAX = 0.02, 0.16  # m: gripper clearance above the table; execute's farthest pre-grasp
+PRE_GRASPS = (0.08, 0.12, 0.16)  # m: execute's pre-grasp back-offs, in the order it tries them
+REACH_CAP = 0.04  # m: farthest a grasp may sit from a grasp dot to be considered
 
 
 def backproject(depth, K, sel):
@@ -27,9 +29,10 @@ def backproject(depth, K, sel):
     ), (v, u)
 
 
-def anygrasp(rgb, depth, K, mask):
-    """grasp_viz_node.process: object bbox + MARGIN as lims, bbox + CONTEXT as the cloud, collision on.
-    -> AnyGrasp reply (camera-frame grasps; frame x = approach, y = closing, z = normal; score-sorted)."""
+def anygrasp(rgb, depth, K, mask, dense=True):
+    """grasp_viz_node.process: object bbox + MARGIN as lims, bbox + CONTEXT as the cloud, collision on; `dense`
+    asks for AnyGrasp's dense proposals (no NMS). -> AnyGrasp reply (camera-frame grasps; frame x = approach,
+    y = closing, z = normal; score-sorted)."""
     valid = (depth > 0.05) & (depth < 3.0)
     obj, _ = backproject(depth, K, valid & mask)
     lo, hi = obj.min(0) - MARGIN, obj.max(0) + MARGIN
@@ -39,7 +42,7 @@ def anygrasp(rgb, depth, K, mask):
     lims = [float(x) for x in (lo[0], hi[0], lo[1], hi[1], lo[2], hi[2])]
     cli = SidecarClient(f"tcp://{HOST}:{SIDECARS['anygrasp']}", 120_000, codec="pickle")
     return cli.call(
-        {"points": pts, "colors": cols, "lims": lims, "collision_detection": True}
+        {"points": pts, "colors": cols, "lims": lims, "collision_detection": True, "dense_grasp": dense}
     )
 
 
@@ -68,6 +71,36 @@ def feasible(rep, depth, K, mask, plane):
             and (t_others.query(C[~palm])[0] > S[~palm, 3]).all()
         )
     return ok
+
+
+def reachable(rep, idx, depth, K, T_base_cam, q, plane):
+    """Candidates `idx` whose pre-grasp cuRobo can plan to from joints q (UR order), trying PRE_GRASPS in order as
+    execute does, against the frame's depth and the table slab. -> bool per candidate of rep."""
+    from . import motion
+
+    motion.map_scene(depth, K, T_base_cam, q, plane=plane)
+    ok = np.zeros(rep["n"], bool)
+    for i in idx:
+        T = T_base_cam @ pose(rep, i)
+        tool0_T_g = motion.tool0_T_grasp(float(rep["depths"][i]))
+        for pre in PRE_GRASPS:
+            T_pre = T.copy()
+            T_pre[:3, 3] -= pre * T[:3, 0]
+            if motion.plan(q, T_pre @ np.linalg.inv(tool0_T_g), None, list(q))[0] is not None:
+                ok[i] = True
+                break
+    return ok
+
+
+def candidates(rep, depth, K, mask, plane, grasp_points_cam, T_base_cam, q):
+    """The grasps the heatmap may pick (DEVIATIONS #27): pass the real-gripper check, within REACH_CAP of a grasp
+    dot, and reachable (a pre-grasp cuRobo plans to from joints q, against the depth and the table slab).
+    -> (bool per candidate, counts after each filter)."""
+    ok = feasible(rep, depth, K, mask, plane)
+    d = np.linalg.norm(rep["translations"][:, None] - np.asarray(grasp_points_cam)[None], axis=2).min(1)
+    near = ok & (d <= REACH_CAP)
+    reach = reachable(rep, np.flatnonzero(near), depth, K, T_base_cam, q, plane)
+    return reach, {"proposed": int(rep["n"]), "real_gripper": int(ok.sum()), "near_dots": int(near.sum()), "reachable": int(reach.sum())}
 
 
 def heat(x, grasp_points_cam):
