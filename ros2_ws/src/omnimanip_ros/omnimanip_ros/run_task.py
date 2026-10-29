@@ -98,7 +98,7 @@ def _save(msg, path):
     cv2.imwrite(str(path), cv2.cvtColor(image_to_rgb(msg), cv2.COLOR_RGB2BGR))
 
 
-def run(node, task, run, decide=True):
+def run(node, task, run, decide=True, mesh_cache=False):
     for d in (
         "marks",
         "objects",
@@ -153,6 +153,7 @@ def run(node, task, run, decide=True):
             mark_id=o.mark_id,
             decide=decide,
             run_dir=str(run),
+            object_name=o.name if mesh_cache else "",
         )
         can = node.call(
             "canonicalize",
@@ -402,6 +403,11 @@ def main():
         action="store_true",
         help="FoundationPose's scorer pick, no re-rank / Orient Anything yaw decision",
     )
+    ap.add_argument(
+        "--mesh-cache",
+        action="store_true",
+        help="reuse each object's cached mesh when it matches (skips TRELLIS.2 + Any6D); cache new ones (omnimanip.mesh_cache)",
+    )
     a, ros_args = ap.parse_known_args()
     out = Path(a.resume) if a.resume else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
     (out / "calls").mkdir(parents=True, exist_ok=True)
@@ -412,7 +418,7 @@ def main():
     threading.Thread(target=ex.spin, daemon=True).start()
     node.get_logger().info(f"run dir {out}" + (" (resumed)" if a.resume else ""))
     try:
-        run(node, a.task, out, decide=not a.no_decide)
+        run(node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache)
     finally:
         ex.shutdown()
         rclpy.shutdown()

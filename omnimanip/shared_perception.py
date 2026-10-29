@@ -26,6 +26,7 @@ from manip_bridge.render_asset import read_obj
 from manip_bridge.zmq_client import SidecarClient
 from scipy.spatial.transform import Rotation
 
+from . import mesh_cache, viz
 from .config import HOST, SIDECARS
 
 SSH_HOST = "coral"  # ~/.ssh/config alias
@@ -360,45 +361,53 @@ def marks(
     return {mid: ms.load_mask(mid) for mid in ms.ids()}, arm, report
 
 
-def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True):
+def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True, cache_name=None, plane=None):
     """run_scene step 3 for one mark: TRELLIS.2 canonical GLB -> Any6D metric final_mesh -> FoundationPose
     register on it with the re-rank + Orient Anything yaw decision (decide=False: the scorer's pick, as
-    run_scene --no-decide). Copies final_mesh locally.
-    -> record {cam_T_obj, fp_scorer, final_mesh (local path), decision, any6d, trellis2}."""
+    run_scene --no-decide). Copies final_mesh locally. With cache_name (and the table plane): the object's cached
+    mesh when it matches (mesh_cache), else generated and cached if it has no entry yet.
+    -> record {cam_T_obj, fp_scorer, final_mesh (local path), decision, any6d, trellis2, mesh_cache}."""
     k, out_dir = key(mark_id), Path(out_dir)
+    if cache_name:
+        d, why = mesh_cache.lookup(cache_name, depth, K, mask > 0, plane)
+        print(f"[mesh cache] {why}", flush=True)
+        if d is not None:
+            rec = _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=d)
+            iou = _fit_iou(rec, K, mask)
+            if iou >= mesh_cache.MIN_IOU:
+                return {**rec, "mesh_cache": {"used": str(d), "iou": iou, "why": why}}
+            print(f"[mesh cache] {cache_name!r}: registered mesh overlaps the mask {iou:.2f} "
+                  f"(< {mesh_cache.MIN_IOU}): generating it afresh", flush=True)
+    rec = _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide)
+    if cache_name and mesh_cache.entry(cache_name) is None:
+        iou = _fit_iou(rec, K, mask)
+        if iou >= mesh_cache.MIN_IOU:
+            meta = mesh_cache.save(cache_name, rec["final_mesh"], rec["cam_T_obj"], plane, out_dir.name)
+            print(f"[mesh cache] saved {cache_name!r} from this run ({100 * meta['height_m']:.1f} cm tall)", flush=True)
+    return {**rec, "mesh_cache": {"used": None}} if cache_name else rec
+
+
+def _fit_iou(rec, K, mask):
+    """Overlap (IoU) of the registered mesh's silhouette with the object's mask."""
+    V, F = read_obj(Path(rec["final_mesh"]))
+    sil = viz.silhouette(np.asarray(K, float), rec["cam_T_obj"], V, F, mask.shape)
+    m = mask > 0
+    return float((sil & m).sum() / max((sil | m).sum(), 1))
+
+
+def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=None):
+    """register's pipeline for one mark; `cached` (a mesh_cache entry dir) replaces TRELLIS.2 + Any6D."""
+    k = key(mark_id)
     dc = depth.copy()
     if arm is not None:
         dc[arm] = 0.0  # arm removed from the depth the pose models see
     m8 = (mask > 0).astype(np.uint8)
     laps = Laps()
-    t2 = cli("trellis2", 400).call(
-        {
-            "op": "generate",
-            "rgb": rgb,
-            "seed": 42,
-            "decimation_target": 500000,
-            "texture_size": 2048,
-            "output_name": f"{k}_{out_dir.name}",
-            "return_glb": False,
-            "mask": m8 * 255,
-            # no depth/K: they only trigger the sidecar's metric-scale branch, which run_scene records but
-            # never uses (Any6D does the scaling); the GLB does not depend on them (DEVIATIONS #12)
-        }
-    )
-    laps("trellis2")
-    a6 = cli("any6d", 1000).call(
-        {
-            "cmd": "estimate",
-            "obj": k,
-            "rgb": rgb,
-            "depth": dc,
-            "K": K,
-            "mask": m8,
-            "est_refine_iter": 5,
-            "mesh": t2["glb_path"],
-        }
-    )
-    laps("any6d")
+    if cached is not None:
+        t2, a6 = None, {"mesh_path": mesh_cache.in_pose_container(cached)}
+        laps("mesh_cache")
+    else:
+        t2, a6 = _generate(k, rgb, dc, K, m8, out_dir, laps)
     pose = cli("pose", 300)
     rep = pose.call(
         {
@@ -436,10 +445,70 @@ def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True):
     laps("yaw_decision")
     if dec["hard_stop"]:
         raise fp.GateStop("decision", f"{k}: {dec['reason']} -- {dec.get('note', '')}")
-    # Any6D's per-object work dir holds the mesh with ITS texture; the top-level material_0.png is shared
-    # and overwritten by every object, so it can belong to a different mesh.
-    local = out_dir / "objects" / k / Path(a6["mesh_path"]).name
+    local = _copy_mesh(k, out_dir, a6["mesh_path"], cached)
+    laps("mesh_copy")
+    T = np.asarray(T_sel if T_sel is not None else rep["pose"], float)
+    return {
+        "mark": mark_id,
+        "cam_T_obj": T,
+        # FoundationPose's own scorer pick (hypotheses are scorer-sorted), before any re-rank / override
+        "fp_scorer": np.asarray(rep["hypotheses"][0] if decide else rep["pose"], float),
+        "final_mesh": str(local),
+        "decision": dec,
+        "any6d": None if cached is not None else {
+            "cam_T_obj": np.asarray(a6["pose"], float),
+            "extents": np.asarray(a6["extents"], float),
+            "mesh": a6["mesh_path"],
+        },
+        "trellis2": None if t2 is None else {"glb": t2["glb_path"], "gen_time": t2["gen_time"]},
+        "time_s": dict(laps),
+    }
+
+
+def _generate(k, rgb, dc, K, m8, out_dir, laps):
+    """TRELLIS.2 canonical GLB -> Any6D metric mesh. -> (trellis2 reply, any6d reply)."""
+    t2 = cli("trellis2", 400).call(
+        {
+            "op": "generate",
+            "rgb": rgb,
+            "seed": 42,
+            "decimation_target": 500000,
+            "texture_size": 2048,
+            "output_name": f"{k}_{out_dir.name}",
+            "return_glb": False,
+            "mask": m8 * 255,
+            # no depth/K: they only trigger the sidecar's metric-scale branch, which run_scene records but
+            # never uses (Any6D does the scaling); the GLB does not depend on them (DEVIATIONS #12)
+        }
+    )
+    laps("trellis2")
+    a6 = cli("any6d", 1000).call(
+        {
+            "cmd": "estimate",
+            "obj": k,
+            "rgb": rgb,
+            "depth": dc,
+            "K": K,
+            "mask": m8,
+            "est_refine_iter": 5,
+            "mesh": t2["glb_path"],
+        }
+    )
+    laps("any6d")
+    return t2, a6
+
+
+def _copy_mesh(k, out_dir, mesh_path, cached):
+    """The registered mesh with its texture, local in out_dir/objects/<k>/ (the cache entry's, or Any6D's).
+    Any6D's per-object work dir holds the mesh with ITS texture; the top-level material_0.png is shared and
+    overwritten by every object, so it can belong to a different mesh."""
+    local = out_dir / "objects" / k / (f"final_mesh_{k}.obj" if cached is not None else Path(mesh_path).name)
     local.parent.mkdir(parents=True, exist_ok=True)
+    if cached is not None:
+        shutil.copy(cached / "mesh.obj", local)
+        for f in ("material.mtl", "material_0.png"):
+            shutil.copy(cached / f, local.parent)
+        return local
     src = f"{ANY6D_HOST_DIR}/{k}"
     files = [local.name, "material.mtl", "material_0.png"]
     if Path(src).is_dir():  # running on the desktop itself (omnimanip.server)
@@ -452,23 +521,7 @@ def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True):
             + [str(local.parent)],
             check=True,
         )
-    laps("mesh_copy")
-    T = np.asarray(T_sel if T_sel is not None else rep["pose"], float)
-    return {
-        "mark": mark_id,
-        "cam_T_obj": T,
-        # FoundationPose's own scorer pick (hypotheses are scorer-sorted), before any re-rank / override
-        "fp_scorer": np.asarray(rep["hypotheses"][0] if decide else rep["pose"], float),
-        "final_mesh": str(local),
-        "decision": dec,
-        "any6d": {
-            "cam_T_obj": np.asarray(a6["pose"], float),
-            "extents": np.asarray(a6["extents"], float),
-            "mesh": a6["mesh_path"],
-        },
-        "trellis2": {"glb": t2["glb_path"], "gen_time": t2["gen_time"]},
-        "time_s": dict(laps),
-    }
+    return local
 
 
 def canonicalize(rec, packet):
