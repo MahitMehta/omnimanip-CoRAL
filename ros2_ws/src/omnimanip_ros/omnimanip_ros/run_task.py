@@ -5,6 +5,10 @@ objects.json, points/, directions/, constraints/, rrc/, grasp/, targetpose/).
 The run directory must be visible at the same path to this node and to omnimanip.server (both write into it).
 
     ros2 run omnimanip_ros run_task --task "Pour tea into the cup" --out /path/to/outputs/runs [--no-decide]
+    ros2 run omnimanip_ros run_task --task "Pour tea into the cup" --resume /path/to/outputs/runs/<stamp> [--no-decide]
+
+Every successful service reply is saved in <run>/calls/ in call order; --resume replays them, so the run picks up
+at the first call that failed or never ran (same capture, same plan). Resume with the flags the run started with.
 """
 
 import argparse
@@ -17,6 +21,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import rclpy
+from rclpy.serialization import deserialize_message, serialize_message
 from manip_bridge.img import image_to_depth_m, image_to_rgb
 from omnimanip_interfaces import srv
 from rclpy.executors import MultiThreadedExecutor
@@ -48,14 +53,21 @@ SERVICES = {
 
 
 class Runner(Node):
-    def __init__(self):
+    def __init__(self, calls_dir):
         super().__init__("omnimanip_run_task")
         self.cli = {
             k: self.create_client(t, f"omnimanip/{k}") for k, t in SERVICES.items()
         }
+        self.calls, self.n = calls_dir, 0  # saved replies, in call order
 
     def call(self, name, **fields):
-        """Blocking call; raises on an unavailable service or success=False."""
+        """Blocking call; raises on an unavailable service or success=False. A reply saved by an earlier attempt of
+        this run (same position in the call order) is replayed instead."""
+        saved = self.calls / f"{self.n:03d}_{name}.bin"
+        self.n += 1
+        if saved.exists():
+            self.get_logger().info(f"{name}: replayed from {saved.name}")
+            return deserialize_message(saved.read_bytes(), SERVICES[name].Response)
         cli = self.cli[name]
         if not cli.wait_for_service(timeout_sec=5.0):
             raise RuntimeError(
@@ -68,6 +80,7 @@ class Runner(Node):
         )
         if not res.success:
             raise RuntimeError(f"{name}: {res.message}")
+        saved.write_bytes(serialize_message(res))
         return res
 
 
@@ -377,22 +390,23 @@ def run(node, task, run, decide=True):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", required=True)
-    ap.add_argument(
-        "--out", required=True, help="runs root; the run goes to <out>/<timestamp>"
-    )
+    where = ap.add_mutually_exclusive_group(required=True)
+    where.add_argument("--out", help="runs root; the run goes to <out>/<timestamp>")
+    where.add_argument("--resume", help="a run dir to continue from its first failed or missing call")
     ap.add_argument(
         "--no-decide",
         action="store_true",
         help="FoundationPose's scorer pick, no re-rank / Orient Anything yaw decision",
     )
     a, ros_args = ap.parse_known_args()
+    out = Path(a.resume) if a.resume else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
+    (out / "calls").mkdir(parents=True, exist_ok=True)
     rclpy.init(args=ros_args)
-    node = Runner()
+    node = Runner(out / "calls")
     ex = MultiThreadedExecutor()
     ex.add_node(node)
     threading.Thread(target=ex.spin, daemon=True).start()
-    out = Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
-    node.get_logger().info(f"run dir {out}")
+    node.get_logger().info(f"run dir {out}" + (" (resumed)" if a.resume else ""))
     try:
         run(node, a.task, out, decide=not a.no_decide)
     finally:
