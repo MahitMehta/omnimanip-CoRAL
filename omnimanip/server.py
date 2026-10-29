@@ -12,6 +12,7 @@ images are RGB uint8, depth float32 metres, masks bool or uint8.
 import json
 import os
 import traceback
+from functools import cache
 from pathlib import Path
 
 import msgpack
@@ -273,12 +274,20 @@ def map_(r):
     return {}
 
 
+@cache
+def _held_spheres(mesh_path):
+    """The held object's covering spheres in its own frame, fitted once per mesh: reading a TRELLIS mesh and
+    fitting them takes ~4 s, and the fit doesn't depend on where the object is, so each plan only moves them."""
+    V, F = S.read_obj(Path(mesh_path))
+    return motion.attached_spheres(V, F, np.eye(4))
+
+
 def plan(r):
     """cuRobo plan to a tool0 goal; with "held" ({mesh_path, tool0_T_obj}) the object rides on tool0 as spheres."""
     h, spheres = r.get("held"), None
     if h is not None:
-        V, F = S.read_obj(Path(h["mesh_path"]))
-        spheres = motion.attached_spheres(V, F, np.asarray(h["tool0_T_obj"], float))
+        s, T = _held_spheres(h["mesh_path"]), np.asarray(h["tool0_T_obj"], float)
+        spheres = np.c_[s[:, :3] @ T[:3, :3].T + T[:3, 3], s[:, 3]]
     path, rep = motion.plan(r["q"], r["goal"], spheres, r.get("q_goal_ref"))
     return {"path": path, "reason": rep.get("reason", "")}
 
