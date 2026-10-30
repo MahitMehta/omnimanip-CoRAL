@@ -22,6 +22,7 @@ TABLE_CLEAR, PRE_GRASP_MAX = 0.02, 0.16  # m: gripper clearance above the table;
 TIP_CLEAR, TIP_LEN = 0.003, 0.02  # m: the fingertips (their last TIP_LEN) may come this close to the table
 PRE_GRASPS = (0.08, 0.12, 0.16)  # m: execute's pre-grasp back-offs, in the order it tries them
 REACH_CAP = 0.04  # m: farthest a grasp may sit from a grasp dot to be considered
+MIN_DEPTH, MAX_OPEN = 0.01, 0.08  # m: fingertips at least this far past the grasp centre; opening at most this
 
 
 def backproject(depth, K, sel):
@@ -115,14 +116,17 @@ def reachable(rep, idx, depth, K, T_base_cam, q, plane):
 
 
 def candidates(rep, depth, K, mask, plane, grasp_points_cam, T_base_cam, q):
-    """The grasps the heatmap may pick (DEVIATIONS #27): pass the real-gripper check, within REACH_CAP of a grasp
-    dot, and reachable (a pre-grasp cuRobo plans to from joints q, against the depth and the table slab).
-    -> (bool per candidate, counts after each filter)."""
+    """The grasps the heatmap may pick (DEVIATIONS #27): pass the real-gripper check, hold the object (fingertips
+    MIN_DEPTH past the grasp centre, opening at most MAX_OPEN: at the gripper's full 8.5 cm AnyGrasp found no pair of
+    contacts and the jaws can land on the object), within REACH_CAP of a grasp dot, and reachable (a pre-grasp
+    cuRobo plans to from joints q, against the depth and the table slab). -> (bool per candidate, counts)."""
     ok = feasible(rep, depth, K, mask, plane)
+    hold = ok & (np.asarray(rep["depths"]) >= MIN_DEPTH - 1e-6) & (np.asarray(rep["widths"]) <= MAX_OPEN)
     d = np.linalg.norm(rep["translations"][:, None] - np.asarray(grasp_points_cam)[None], axis=2).min(1)
-    near = ok & (d <= REACH_CAP)
+    near = hold & (d <= REACH_CAP)
     reach = reachable(rep, np.flatnonzero(near), depth, K, T_base_cam, q, plane)
-    return reach, {"proposed": int(rep["n"]), "real_gripper": int(ok.sum()), "near_dots": int(near.sum()), "reachable": int(reach.sum())}
+    return reach, {"proposed": int(rep["n"]), "real_gripper": int(ok.sum()), "holds": int(hold.sum()), "near_dots": int(near.sum()),
+                   "reachable": int(reach.sum())}
 
 
 def heat(x, grasp_points_cam):
