@@ -21,8 +21,8 @@ SIGMA, KEEP = 0.01, 0.5  # heatmap Gaussian (m); keep candidates with heat >= KE
 TABLE_CLEAR, PRE_GRASP_MAX = 0.02, 0.16  # m: gripper clearance above the table; execute's farthest pre-grasp
 TIP_CLEAR, TIP_LEN = 0.003, 0.02  # m: the fingertips (their last TIP_LEN) may come this close to the table
 PRE_GRASPS = (0.08, 0.12, 0.16)  # m: execute's pre-grasp back-offs, in the order it tries them
-REACH_CAP = 0.04  # m: farthest a grasp may sit from a grasp dot to be considered
-MIN_DEPTH, MAX_OPEN = 0.01, 0.08  # m: fingertips at least this far past the grasp centre; opening at most this
+REACH_CAP = 0.05  # m: farthest a grasp may sit from a grasp dot to be considered
+MIN_DEPTH, MAX_OPEN = 0.0075, 0.08  # m: fingertips at least this far past the grasp centre; opening at most this
 
 
 def backproject(depth, K, sel):
