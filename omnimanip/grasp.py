@@ -4,6 +4,8 @@ AnyGrasp proposes 6-DoF grasps; a Gaussian at each VLM grasp point is summed int
 The AnyGrasp call is the shared grasp service's, as in Albus's grasp_viz_node.py.
 """
 
+from functools import cache
+
 import cv2
 import numpy as np
 from manip_bridge.zmq_client import SidecarClient
@@ -17,6 +19,7 @@ MARGIN, CONTEXT = (
 )  # m: lims box around the object; table context sent for collision checking
 SIGMA, KEEP = 0.01, 0.5  # heatmap Gaussian (m); keep candidates with heat >= KEEP * max
 TABLE_CLEAR, PRE_GRASP_MAX = 0.02, 0.16  # m: gripper clearance above the table; execute's farthest pre-grasp
+TIP_CLEAR, TIP_LEN = 0.003, 0.02  # m: the fingertips (their last TIP_LEN) may come this close to the table
 PRE_GRASPS = (0.08, 0.12, 0.16)  # m: execute's pre-grasp back-offs, in the order it tries them
 REACH_CAP = 0.04  # m: farthest a grasp may sit from a grasp dot to be considered
 
@@ -46,11 +49,23 @@ def anygrasp(rgb, depth, K, mask, dense=True):
     )
 
 
+@cache
+def _gripper_points():
+    """The real Robotiq mesh's vertices in the grasp frame (fingertips at x = 0, fingers open), and per vertex how
+    far along y it slides per metre of closing (the fingers; 0 for the body)."""
+    g = gripper.GRIPPER
+    T = gripper.grasp_T_base(g, 0.0)
+    V, W = (np.asarray(gripper.mesh(g, w).vertices) @ T[:3, :3].T + T[:3, 3] for w in (g.max_width, 0.0))
+    return V, (W[:, 1] - V[:, 1]) / g.max_width
+
+
 def feasible(rep, depth, K, mask, plane):
-    """Real-gripper check (DEVIATIONS #27): the Robotiq spheres at each candidate (fingers at width + 1 cm, placed
-    as in mesh_grasps) stay TABLE_CLEAR above the table plane at the grasp and at PRE_GRASP_MAX back along the
-    approach (height is linear along the straight approach, so the two ends cover every pre-grasp); at the grasp
-    the palm also clears the scene cloud and the fingers clear every other object. -> bool per candidate."""
+    """Real-gripper check (DEVIATIONS #27): the real Robotiq mesh at each candidate (fingers at width + 1 cm) keeps
+    its fingertips (last TIP_LEN) TIP_CLEAR and the rest TABLE_CLEAR above the table plane, at the grasp and at
+    PRE_GRASP_MAX back along the approach (height is linear along the straight approach, so the two ends cover every
+    pre-grasp); at the grasp the palm spheres also clear the scene cloud and the finger spheres every other object.
+    The mesh, not the spheres, for the table: each finger is four large spheres that bulge below a fingertip near
+    the table. -> bool per candidate."""
     from scipy.spatial import KDTree
 
     g, n_pl, d_pl = gripper.GRIPPER, np.asarray(plane["n"], float), float(plane["d"])
@@ -59,14 +74,21 @@ def feasible(rep, depth, K, mask, plane):
     others, _ = backproject(depth, K, valid & ~mask)
     off = lambda P: np.abs(P @ n_pl + d_pl) >= 0.01  # the table itself is checked analytically
     t_scene, t_others = KDTree(scene[off(scene)]), KDTree(others[off(others)])
+    V0, slide = _gripper_points()
+    tip = V0[:, 0] >= -TIP_LEN
+    clear = np.where(tip, TIP_CLEAR, TABLE_CLEAR)
     ok = np.zeros(rep["n"], bool)
     for i in range(rep["n"]):
         R, t, d = rep["rotations"][i], rep["translations"][i], float(rep["depths"][i])
-        S = gripper.spheres(g, min(float(rep["widths"][i]) + 0.01, g.max_width))
+        w = min(float(rep["widths"][i]) + 0.01, g.max_width)
+        S = gripper.spheres(g, w)
         palm = S[:, 3] > 0.02
         C = S[:, :3] @ R.T + t + d * R[:, 0]
+        V = V0.copy()
+        V[:, 1] += slide * (g.max_width - w)
+        M = V @ R.T + t + d * R[:, 0]
         ok[i] = (
-            all(((P @ n_pl + d_pl) - S[:, 3] >= TABLE_CLEAR).all() for P in (C, C - PRE_GRASP_MAX * R[:, 0]))
+            all(((P @ n_pl + d_pl) >= clear).all() for P in (M, M - PRE_GRASP_MAX * R[:, 0]))
             and (t_scene.query(C[palm])[0] > S[palm, 3]).all()
             and (t_others.query(C[~palm])[0] > S[~palm, 3]).all()
         )
