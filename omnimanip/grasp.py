@@ -161,27 +161,23 @@ def choose(rep, cam_T_can, grasp_points_can, ok=None):
 
 
 def overlay(rgb, K, rep, p_cam, i, up):
-    """Candidate centres (grey), grasp points (blue), and grasp i: its two jaws (green) at +-width/2 along the
-    closing axis y, from 2 cm behind the centre to the tips `depth` past it, the opening between them (yellow), the
-    approach (x, red) into the palm, and a label with the pinch's tilt from the table (`up` = table normal)."""
+    """Grasp points (blue) and grasp i as a gripper bracket (green, black outline): two
+    fingers at +-width/2 along the closing axis y, from the palm 2 cm behind the centre to the tips `depth` past it,
+    the palm bar joining them, and a 4 cm wrist stem back along the approach (x); plus a label with the pinch's
+    tilt from the table (`up` = table normal)."""
     im = rgb.copy()
-    for t in np.round(
-        viz.project(K, np.eye(4), np.asarray(rep["translations"]))
-    ).astype(int):
-        cv2.circle(im, (int(t[0]), int(t[1])), 3, (160, 160, 160), -1)
     for q in np.round(viz.project(K, np.eye(4), p_cam)).astype(int):
         cv2.circle(im, (int(q[0]), int(q[1])), 6, (0, 0, 255), -1)
     T_g, w, d = pose(rep, i), float(rep["widths"][i]), float(rep["depths"][i])
     px = lambda X: [
         tuple(int(v) for v in p) for p in np.round(viz.project(K, T_g, np.array(X)))
     ]
-    for s in (-1, 1):  # jaw: palm side to fingertip
-        a, b = px([[-0.02, s * w / 2, 0], [d, s * w / 2, 0]])
-        cv2.line(im, a, b, (0, 200, 0), 4)
-    a, b = px([[0, -w / 2, 0], [0, w / 2, 0]])
-    cv2.line(im, a, b, (220, 220, 0), 1)
-    a, b = px([[-0.08, 0, 0], [-0.02, 0, 0]])
-    cv2.arrowedLine(im, a, b, (255, 0, 0), 2, tipLength=0.3)
+    # bracket: fingertip -> palm -> other fingertip, and the wrist stem from the palm's middle
+    bracket = np.array(px([[d, -w / 2, 0], [-0.02, -w / 2, 0], [-0.02, w / 2, 0], [d, w / 2, 0]]), np.int32)
+    stem = px([[-0.02, 0, 0], [-0.06, 0, 0]])
+    for col, th in (((0, 0, 0), 6), ((0, 220, 0), 3)):  # outline, then the bracket
+        cv2.polylines(im, [bracket], False, col, th, cv2.LINE_AA)
+        cv2.line(im, *stem, col, th, cv2.LINE_AA)
     tilt = np.degrees(np.arcsin(min(1.0, abs(float(T_g[:3, 1] @ up)))))
     kind = "vertical" if tilt > 60 else "horizontal" if tilt < 30 else "diagonal"
     cv2.putText(

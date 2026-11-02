@@ -98,6 +98,17 @@ def _save(msg, path):
     cv2.imwrite(str(path), cv2.cvtColor(image_to_rgb(msg), cv2.COLOR_RGB2BGR))
 
 
+def _points_overlay(rgb, info, pts, path):
+    """Every stage's points on the frame, as omnimanip.run draws them: grasp dots red, the others yellow."""
+    im, K = image_to_rgb(rgb).copy(), np.asarray(info.k, float).reshape(3, 3)
+    for p in pts:
+        for x, y, z in p["points_camera"]:
+            u, v = int(round(K[0, 0] * x / z + K[0, 2])), int(round(K[1, 1] * y / z + K[1, 2]))
+            cv2.circle(im, (u, v), 6, (255, 0, 0) if p["kind"] == "grasp" else (255, 255, 0), -1)
+            cv2.circle(im, (u, v), 6, (0, 0, 0), 1)
+    cv2.imwrite(str(path), cv2.cvtColor(im, cv2.COLOR_RGB2BGR))
+
+
 def run(node, task, run, decide=True, mesh_cache=False):
     for d in (
         "marks",
@@ -241,6 +252,7 @@ def run(node, task, run, decide=True, mesh_cache=False):
             "expected": d.expected,
         }
     _dump(list(pts.values()), run / "points" / "points.json")
+    _points_overlay(rgb, info, pts.values(), run / "points" / "points_overlay.png")
     _dump(list(dirs.values()), run / "directions" / "directions.json")
 
     # 13 constraints, 14 RRC (non-grasp stages)
