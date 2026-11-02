@@ -133,6 +133,11 @@ def run(node, task, run, decide=True, mesh_cache=False):
         run_dir=str(run),
     )
     (run / "marks_report.json").write_text(mk.report_json)
+    cal = json.loads(mk.report_json).get("calibration", {})
+    if not cal.get("ok", True):
+        node.get_logger().warn(
+            "calibration check: " + "; ".join(cal["problems"]) + f" (see {run / 'calibration_check.png'})"
+        )
     masks = dict(zip(mk.mark_ids, mk.masks))
     plan_msg = node.call("partition_task", task=task, marked=mk.marked).plan
     plan = conv.plan_of(plan_msg)

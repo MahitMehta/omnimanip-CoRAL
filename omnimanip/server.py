@@ -56,9 +56,9 @@ def _fields(r, obj, element):
 
 def marks(r):
     packet = json.loads(r["packet_json"])
-    cal = calib.save(r["run_dir"], r["rgb"], r["K"], packet)  # the first call after capture: stop before the slow stages
+    cal = calib.save(r["run_dir"], r["rgb"], r["K"], packet)  # a warning only: run_task logs it from the report
     if not cal["ok"]:
-        raise RuntimeError("calibration check: " + "; ".join(cal["problems"]) + " (see calibration_check.png)")
+        print("WARNING calibration check: " + "; ".join(cal["problems"]) + " (see calibration_check.png)", flush=True)
     m, arm, report = S.marks(
         r["rgb"],
         r["depth"],
@@ -75,7 +75,7 @@ def marks(r):
             ..., ::-1
         ].copy(),
         "arm_mask": arm,
-        "report_json": _json(report),
+        "report_json": _json({**report, "calibration": cal}),
     }
 
 

@@ -283,6 +283,13 @@ class Executor(Node):
         }
 
 
+def delta(T1, T0):
+    """(translation m, rotation rad) between two poses."""
+    return float(np.linalg.norm(T1[:3, 3] - T0[:3, 3])), float(
+        Rotation.from_matrix(T1[:3, :3] @ T0[:3, :3].T).magnitude()
+    )
+
+
 def gate(a, what, first=True):
     if (a.gate == "all" or (a.gate == "first" and first)) and input(
         f"[gate] {what} -- Enter to go, anything else stops: "
@@ -346,8 +353,12 @@ def run(node, a, log):
 
     show = lambda Q: node.show(Q, [fk(q)[:3, 3] for q in Q], a.speed)
 
+    timing = {}
+
     def planned(what, goal, first, **kw):
+        t0 = time.time()
         r = call("plan", q=list(node.joints()), goal=goal, **kw)
+        timing["plan_s"] = time.time() - t0  # sidecar + cuRobo round trip, before the gate
         if r["path"] is None:
             return None, r["reason"]
         Q = np.asarray(r["path"], float)
@@ -389,11 +400,7 @@ def run(node, a, log):
     node.send(path, a.speed)
     straight("approach", tool0(T_g))
     gate(a, "close the gripper")
-    log["grasp"]["close"] = r = node.gripper(CLOSE_GAP, a.effort)
-    if not r["stalled"] and not a.skip_grip_check:
-        raise Stop(
-            f"gripper closed without an object (gap {r['position'] * 1000:.1f} mm)"
-        )
+    log["grasp"]["close"] = node.gripper(CLOSE_GAP, a.effort)
     held.append(A)
     T_up = ee_cam()
     T_up[:3, 3] += LIFT * C_B[:3, 2]  # base +z in the camera frame
@@ -425,6 +432,7 @@ def run(node, a, log):
         T_a, T_p, T_e = tracked(A), tracked(Pv), ee_cam()
         if solving:
             phi = np.linalg.inv(T_e) @ T_a
+            t0 = time.time()
             r = call(
                 "targetpose",
                 depth=depth0,
@@ -439,18 +447,25 @@ def run(node, a, log):
                 overlay=False,
             )
             T_t = np.asarray(r["cam_T_ee_target"], float)
+            solve_s = time.time() - t0
             solving = np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
+            phi0 = phi if it == 0 else phi0
+            d_t, d_r = delta(T_t, T_plan)
+            moved = path is None or d_t > REPLAN_T or d_r > REPLAN_R
             log[ACT]["updates"].append(
                 {
                     "it": it,
                     "ok": bool(r["ok"]),
                     **{k_: float(v) for k_, v in r["terms"].items()},
+                    # what drives re-plans: the target's move from the current plan's target, and Phi's drift
+                    # from the stage's first measurement (cm, deg)
+                    "target_vs_plan": None if path is None else [d_t * 100, np.degrees(d_r)],
+                    "phi_vs_first": [x * f for x, f in zip(delta(phi, phi0), (100, np.degrees(1)))],
+                    "replan": bool(moved),
+                    "solve_s": solve_s,  # O9 re-solve on the sidecar, round trip
+                    "phi": phi.tolist(),
+                    "target": T_t.tolist(),
                 }
-            )
-            moved = path is None or (
-                np.linalg.norm(T_t[:3, 3] - T_plan[:3, 3]) > REPLAN_T
-                or Rotation.from_matrix(T_t[:3, :3] @ T_plan[:3, :3].T).magnitude()
-                > REPLAN_R
             )
             if moved:
                 ref = list(
@@ -470,7 +485,12 @@ def run(node, a, log):
                     q_goal_ref=ref,
                 )
                 log[ACT]["plans"].append(
-                    {"it": it, "success": new is not None, "reason": why}
+                    {
+                        "it": it,
+                        "success": new is not None,
+                        "reason": why,
+                        "plan_s": timing["plan_s"],
+                    }
                 )
                 first = False
                 if (
@@ -518,12 +538,6 @@ def main():
     )
     ap.add_argument("--controller", default="scaled_joint_trajectory_controller")
     ap.add_argument("--gate", choices=("all", "first", "none"), default="all")
-    ap.add_argument(
-        "--skip-grip-check",
-        action="store_true",
-        help="go on after the close whatever the gripper reports (gripper-control's URCap reply can be one move "
-        "behind); the operator checks the grasp at the lift's gate",
-    )
     ap.add_argument(
         "--mock-tracking",
         action="store_true",
