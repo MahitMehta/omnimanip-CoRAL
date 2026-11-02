@@ -1,7 +1,7 @@
 """Mesh cache (run_task --mesh-cache): an object's metric mesh (TRELLIS.2 -> Any6D, from an earlier run) reused by
 name, so registration skips TRELLIS.2 and Any6D and only FoundationPose registers it in the new scene. Used only when
-the segmented points match its size (height above the table, footprint), and kept only when the registered mesh's
-silhouette matches the mask; otherwise the object is generated afresh. PoseServer reads meshes from its own
+the segmented points match its height above the table, and kept only when the registered mesh's silhouette matches
+the mask; otherwise the object is generated afresh. PoseServer reads meshes from its own
 container, so an entry is copied into it (docker cp) under /tmp, and again after a PoseServer restart.
 
     uv run python -m omnimanip.mesh_cache list
@@ -22,7 +22,7 @@ from .config import ROOT
 
 CACHE_DIR = ROOT / "outputs" / "mesh_cache"
 POSE_CONTAINER, POSE_DIR = "PoseServer", "/tmp/omnimanip_mesh_cache"
-SIZE_TOL, MIN_IOU = 0.015, 0.7  # m: observed vs cached height / footprint; silhouette-vs-mask IoU to keep a mesh
+SIZE_TOL, MIN_IOU = 0.015, 0.7  # m: observed vs cached height; silhouette-vs-mask IoU to keep a mesh
 FILES = ("mesh.obj", "material.mtl", "material_0.png")
 
 
@@ -67,10 +67,9 @@ def lookup(name, depth, K, mask, plane):
     if d is None:
         return None, f"no cached mesh for {name!r}"
     m = json.loads((d / "meta.json").read_text())
-    h, f = observed_size(depth, K, mask, plane)
-    if abs(h - m["height_m"]) > SIZE_TOL or f > m["footprint_m"] + SIZE_TOL:
-        return None, (f"{name!r} looks different from the cached one: {100 * h:.1f} cm tall, {100 * f:.1f} cm across "
-                      f"(cached {100 * m['height_m']:.1f}, {100 * m['footprint_m']:.1f})")
+    h, _ = observed_size(depth, K, mask, plane)  # not the footprint: it read 5-6 cm too wide from a side camera (2026-11-02)
+    if abs(h - m["height_m"]) > SIZE_TOL:
+        return None, f"{name!r} looks different from the cached one: {100 * h:.1f} cm tall (cached {100 * m['height_m']:.1f})"
     return d, f"cached mesh of {name!r} from {m['source_run']}"
 
 
