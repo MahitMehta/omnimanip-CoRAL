@@ -9,7 +9,8 @@ O10) for a run_task run: the hardware counterpart of sim/execute.py, same primit
   within 2 cm of it, and re-planned when it moves 1 cm / 3 deg.
 
 Tracking: FoundationPose "track" on every synced camera frame (drop-if-busy) for the run's registered sessions
-(omni_m<id>, made by register_object). Motion: the arm through the UR driver's FollowJointTrajectory action, the
+(omni_m<id>, made by register_object). With no fresh pose, execution goes on with a warning: the held object rides on
+the gripper at its last measured grasp, others stay at their last pose; both are logged as track_events. Motion: the arm through the UR driver's FollowJointTrajectory action, the
 gripper through gripper-control's /gripper/gripper_cmd (GripperCommand). Planning, IK and O9 run on the
 omnimanip.server sidecar (cuRobo behind it); kinematics are the planner's URDF (assets/ur5e_robotiq.urdf).
 
@@ -76,6 +77,8 @@ OPEN_GAP, CLOSE_GAP = (
 VMAX = np.pi  # rad/s and rad/s^2 per UR5e joint at --speed 1
 START_TOL, ARRIVE_TOL = 0.01, 0.01  # rad
 TRACK_MAX_AGE = 1.0  # s: an older tracked pose is not used
+TRACK_WAIT, STALE_WAIT = 5.0, 0.2  # s: wait for a fresh pose; the same once that object is known to be stale
+TRACK_SLOW = 1.0  # s: a longer gap between synced frames, or track call, is logged
 
 
 class Stop(Exception):
@@ -88,6 +91,8 @@ class Executor(Node):
         self.q, self.qlock = None, threading.Lock()
         self.poses, self.plock, self.busy = {}, threading.Lock(), False
         self.keys, self.info = keys, None
+        self.stale, self.events = {}, []  # key -> when it went stale; what track_events records in exec.json
+        self.last_frame, self.call_t0 = None, None
         self.pose_cli = SidecarClient(POSE_ADDR, 30_000)
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10)
         self.create_subscription(
@@ -137,6 +142,10 @@ class Executor(Node):
 
     def _on_frame(self, rgb, depth):
         """FoundationPose track for every session on this frame (frames arriving while busy are dropped)."""
+        now = time.time()
+        if self.last_frame is not None and now - self.last_frame > TRACK_SLOW:
+            self.event("frame_gap", s=now - self.last_frame)
+        self.last_frame = now
         if self.busy or self.info is None:
             return
         self.busy = True
@@ -147,6 +156,7 @@ class Executor(Node):
                 camera_info_to_K(self.info),
             )
             for k in self.keys:
+                self.call_t0 = time.time()
                 rep = self.pose_cli.call(
                     {
                         "cmd": "track",
@@ -157,12 +167,21 @@ class Executor(Node):
                         "track_refine_iter": 2,
                     }
                 )
+                took = time.time() - self.call_t0
+                if took > TRACK_SLOW:
+                    self.event("slow_track", key=k, s=took)
                 with self.plock:
                     self.poses[k] = (time.time(), np.asarray(rep["pose"], float))
         except Exception as e:  # noqa: BLE001 -- a lost frame; staleness is checked where poses are used
-            self.get_logger().warn(f"track: {e}")
+            self.event("track_error", error=str(e), s=time.time() - self.call_t0)
         finally:
-            self.busy = False
+            self.call_t0, self.busy = None, False
+
+    def event(self, kind, **kw):
+        """A tracking problem: warned, and kept for exec.json's track_events."""
+        kw = {k: round(v, 2) if isinstance(v, float) else v for k, v in kw.items()}
+        self.events.append({"t": round(time.time(), 2), "event": kind, **kw})
+        self.get_logger().warn(f"track: {kind} {kw}")
 
     def joints(self):
         with self.qlock:
@@ -171,15 +190,29 @@ class Executor(Node):
             return self.q.copy()
 
     def pose(self, key):
-        """Latest tracked cam_T_obj (body frame), waiting up to 5 s for a fresh one."""
+        """Latest tracked cam_T_obj (body frame), waiting for a fresh one. -> (pose, or None if never tracked; fresh)."""
+        wait = STALE_WAIT if key in self.stale else TRACK_WAIT
         t0 = time.time()
-        while time.time() - t0 < 5.0:
+        while True:
             with self.plock:
                 p = self.poses.get(key)
             if p is not None and time.time() - p[0] < TRACK_MAX_AGE:
-                return p[1]
+                if key in self.stale:
+                    self.event("recovered", key=key, s=time.time() - self.stale.pop(key))
+                return p[1], True
+            if time.time() - t0 >= wait:
+                break
             time.sleep(0.05)
-        raise Stop(f"no fresh tracked pose for {key}")
+        if key not in self.stale:
+            self.stale[key] = t0
+            call, frame = self.call_t0, self.last_frame  # which of the two stopped the poses
+            self.event(
+                "stale",
+                key=key,
+                call_running_s=None if call is None else time.time() - call,
+                frame_age_s=None if frame is None else time.time() - frame,
+            )
+        return (None if p is None else p[1]), False
 
     def _wait(self, fut, what):
         while not fut.done():
@@ -341,14 +374,23 @@ def run(node, a, log):
     tool0 = lambda T_cam: B_C @ T_cam @ np.linalg.inv(TG)
 
     held = []  # set once the gripper holds the active object
+    seen = {}  # the held object's last measured Phi (grasp -> object), for when tracking goes stale
 
     def tracked(name):
         if a.mock_tracking:  # dry run: planned poses; the held object rigid in the grasp (the grasp's Phi)
             if name == A and held:
                 return ee_cam() @ np.asarray(grasp["phi_grasp_T_obj"], float)
             return np.asarray(objects[name]["cam_T_can"], float)
-        T = node.pose(f"omni_m{objects[name]['mark']}").copy()
+        body, fresh = node.pose(f"omni_m{objects[name]['mark']}")
+        carried = name == A and held
+        if not fresh and carried:
+            return ee_cam() @ seen.get("phi", np.asarray(grasp["phi_grasp_T_obj"], float))
+        if body is None:  # never tracked: where the plan saw it
+            return np.asarray(objects[name]["cam_T_can"], float)
+        T = body.copy()
         T[:3, :3] = T[:3, :3] @ Rc[name]
+        if carried:
+            seen["phi"] = np.linalg.inv(ee_cam()) @ T
         return T
 
     show = lambda Q: node.show(Q, [fk(q)[:3, 3] for q in Q], a.speed)
@@ -562,6 +604,7 @@ def main():
     except KeyboardInterrupt:
         log["status"] = "interrupted"
     finally:
+        log["track_events"] = node.events
         (Path(a.run) / "exec.json").write_text(
             json.dumps(
                 log,
