@@ -76,7 +76,7 @@ Everything runs on CoRAL (`ssh coral`) except the robot laptop's driver, camera 
    cd ~/omnimanip && PYOPENGL_PLATFORM=egl nohup .venv/bin/python -m omnimanip.server > outputs/server.log 2>&1 &
    cd ros2_ws && RUNS_DIR=$HOME/omnimanip/outputs/runs docker compose up -d --force-recreate   # domain 66
    ```
-5. **Check** (camera ~30 Hz at 640x480, trajectory and gripper actions listed):
+5. **Check** (camera ~30 Hz at any one profile, e.g. 640x480 or 1280x720; trajectory and gripper actions listed):
    ```bash
    docker exec -it OmniManipROS bash -c 'source install/setup.bash; ros2 topic hz /camera/camera/color/image_raw; \
      ros2 topic echo --once /camera/camera/color/camera_info | head -4; ros2 action list'

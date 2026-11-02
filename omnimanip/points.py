@@ -17,7 +17,7 @@ GRID = (
 )  # rows, cols: the size of the paper's real-crop examples (supp. Figs. 12-14); real crops scale it to their shape
 MIN_CROP_PX = 512  # real crops whose long side is shorter are upscaled before gridding (thin / far objects)
 CROP_MARGIN = 0.1  # of the mask bbox per side, for every real crop: more of the 8-wide grid lands on the object (DEVIATIONS #14)
-DEPTH_WIN = 5  # px radius for the median depth around a selected dot
+DEPTH_WIN = 5  # px radius at 480 rows for the median depth around a selected dot
 FG_TOL = 0.02  # m: window depths this close to the nearest one are the object (thin parts bleed background)
 VIEW_PX = 512
 
@@ -96,6 +96,7 @@ def lift(u, v, depth, K, mask, cam_T_can, win=DEPTH_WIN):
     the mask is largely the background behind them. With no valid pixel there, the nearest valid mask pixel is
     used. -> (point, snapped)."""
     H, W = depth.shape
+    win = round(win * H / 480)
     y0, y1, x0, x1 = (
         max(v - win, 0),
         min(v + win + 1, H),

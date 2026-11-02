@@ -28,7 +28,7 @@ import numpy as np
 import rclpy
 from manip_bridge import frame_packet as fp
 from manip_bridge.img import camera_info_to_K, image_to_depth_m, image_to_rgb
-from manip_bridge.run_scene import SceneRunner, build_packet
+from manip_bridge.run_scene import CUROBO_ADDR, SceneRunner, build_packet
 from manip_bridge.zmq_client import SidecarClient
 from omnimanip_interfaces import srv
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -100,6 +100,8 @@ class Bridge(Node):
         args = argparse.Namespace(
             t_base_cam=None, from_run=None, frames=n, frame_timeout=req.timeout_s
         )
+        # a fresh segmenter: it keeps the image size it first saw, and a failed mask only warns in the packet
+        SidecarClient(CUROBO_ADDR, timeout_ms=60_000).call({"cmd": "load_robot"})
         _, rgb_msg, info, header, depth, packet, rmask = build_packet(
             self.capture_node, args, self.get_logger()
         )

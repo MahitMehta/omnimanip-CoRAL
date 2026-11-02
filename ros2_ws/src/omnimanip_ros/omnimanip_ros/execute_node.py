@@ -67,7 +67,7 @@ LIFT = 0.10  # m straight up after closing (DEVIATIONS #33)
 RESOLVE_STOP = 0.02  # m (O10)
 REPLAN_T, REPLAN_R = 0.01, np.radians(3)
 CHUNK = 8  # planned waypoints sent per tracker update
-MASK_GROW = 5  # px: held object's mask grown before it leaves the map
+MASK_GROW = 5  # px at 480 rows: held object's mask grown before it leaves the map
 DWELL_S = 2.0  # held at the pour pose
 OPEN_GAP, CLOSE_GAP = (
     0.085,
@@ -407,12 +407,8 @@ def run(node, a, log):
     straight("lift", tool0(T_up))
 
     # the stage's primitive, closed loop; the held object leaves the map and rides on tool0 as spheres
-    grown = (
-        cv2.dilate(
-            masks[A].astype(np.uint8), np.ones((2 * MASK_GROW + 1,) * 2, np.uint8)
-        )
-        > 0
-    )
+    grow = round(MASK_GROW * masks[A].shape[0] / 480)
+    grown = cv2.dilate(masks[A].astype(np.uint8), np.ones((2 * grow + 1,) * 2, np.uint8)) > 0
     call(
         "map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap), exclude=grown, plane=packet["plane"]
     )

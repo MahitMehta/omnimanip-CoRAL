@@ -13,16 +13,15 @@ from . import vlm
 from .directions import ARROW_LEN, CV_TO_GL, arrow
 
 INPAINT_DILATE = (
-    7  # px: cover the mask's edge so the object's outline is not left behind
+    7  # px at 480 rows: cover the mask's edge so the object's outline is not left behind
 )
 
 
 def inpaint(rgb, mask):
     """Remove the active object's original appearance (supp. A.3: the paper's method [40] is not named;
     OpenCV's Telea inpainting here)."""
-    m = cv2.dilate(
-        mask.astype(np.uint8) * 255, np.ones((2 * INPAINT_DILATE + 1,) * 2, np.uint8)
-    )
+    grow = round(INPAINT_DILATE * mask.shape[0] / 480)
+    m = cv2.dilate(mask.astype(np.uint8) * 255, np.ones((2 * grow + 1,) * 2, np.uint8))
     return cv2.inpaint(rgb, m, 5, cv2.INPAINT_TELEA)
 
 
