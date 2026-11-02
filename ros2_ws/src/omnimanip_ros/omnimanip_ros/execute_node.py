@@ -333,10 +333,13 @@ def gate(a, what, first=True):
 def run(node, a, log):
     run = Path(a.run)
     objects = json.loads((run / "objects.json").read_text())
-    grasp = json.loads((run / "grasp" / "grasp.json").read_text())[0]
     stage = next(
-        s for s in json.loads((run / "rrc" / "rrc.json").read_text()) if s["accepted"]
+        (s for s in json.loads((run / "rrc" / "rrc.json").read_text()) if s["accepted"]),
+        None,
     )
+    if stage is None:
+        raise Stop("RRC accepted no constraint in this run: nothing to execute")
+    grasp = json.loads((run / "grasp" / "grasp.json").read_text())[0]
     packet = json.loads((run / "packet.json").read_text())
     c = {
         k: np.asarray(v) if isinstance(v, list) else v

@@ -311,6 +311,8 @@ def run(node, task, run, decide=True, mesh_cache=False):
             else None
         )
         accepted[s.action] = (s, r.constraint) if r.accepted else None
+        if not r.accepted:
+            node.get_logger().warn(f"{s.action}: RRC NOT accepted: none of its {len(trace)} checks succeeded")
         stages[-1]["rrc"] = {"accepted": acc, "trace": trace}
     _dump(
         [{k: v for k, v in st.items() if k != "rrc"} for st in stages],
@@ -328,6 +330,10 @@ def run(node, task, run, decide=True, mesh_cache=False):
         ],
         run / "rrc" / "rrc.json",
     )
+    if not any(accepted.values()):
+        raise RuntimeError(
+            "RRC accepted no constraint, nothing to execute (to ask again: delete calls/*_rrc.bin and --resume)"
+        )
 
     # 15 grasp (grasp stages)
     grasps = {}

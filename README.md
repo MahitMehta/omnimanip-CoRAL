@@ -81,7 +81,7 @@ Everything runs on CoRAL (`ssh coral`) except the robot laptop's driver, camera 
    docker exec -it OmniManipROS bash -c 'source install/setup.bash; ros2 topic hz /camera/camera/color/image_raw; \
      ros2 topic echo --once /camera/camera/color/camera_info | head -4; ros2 action list'
    ```
-6. **Plan** (no motion, ~9 min), then check `canonical_overlay_*`, `grasp/`, `rrc/`, `targetpose/` in the run dir. Don't move the objects after this.
+6. **Plan** (no motion, ~9 min), then check `canonical_overlay_*`, `grasp/`, `rrc/`, `targetpose/` in the run dir. Don't move the objects after this. If RRC accepts nothing the run stops there; to ask the VLM again on the same capture, delete `calls/*_rrc.bin` and run with `--resume <run dir>`.
    ```bash
    docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \
      ros2 run omnimanip_ros run_task --task "<instruction>" --out $RUNS_DIR'   # e.g. "Pour tea into the cup"; add --no-decide to skip the yaw decision
