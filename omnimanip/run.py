@@ -413,13 +413,18 @@ def grasp(r, a):
             T = r.T(name)
             jn = [n.removeprefix("robot0_") for n in pk["joints"]["names"]]  # sim joints carry robosuite's prefix
             ok, counts = G.candidates(
-                rep, r.depth, r.K, mask, pk["plane"], np.asarray(gp["points"]) @ T[:3, :3].T + T[:3, 3],
-                np.asarray(pk["t_base_cam"]["T"], float), [pk["joints"]["q"][jn.index(n)] for n in motion.UR_JOINTS],
+                rep, r.depth, r.K, mask, pk["plane"], np.asarray(gp["points"]) @ T[:3, :3].T + T[:3, 3]
             )
-            print(f"{name}: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
-            if not ok.any():
+            picked, tried = G.choose_reachable(
+                rep, T, gp["points"], ok, r.depth, r.K, np.asarray(pk["t_base_cam"]["T"], float),
+                [pk["joints"]["q"][jn.index(n)] for n in motion.UR_JOINTS], pk["plane"],
+            )
+            print(f"{name}: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", picks tried for reach {tried}")
+            if picked is None:
                 continue
-        i, T_g, phi, p_cam, heat = G.choose(rep, r.T(name), gp["points"], ok)
+        else:
+            picked = G.choose(rep, r.T(name), gp["points"], ok)
+        i, T_g, phi, p_cam, heat = picked
         dist = np.linalg.norm(rep["translations"][i] - p_cam, axis=1).min()
         print(
             f"{name}: {rep['n']} grasps; chosen #{i} score {rep['scores'][i]:.3f} (best score {rep['scores'][0]:.3f}),"

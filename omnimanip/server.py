@@ -214,12 +214,15 @@ def grasp(r):
     if not rep["n"]:
         raise RuntimeError("AnyGrasp returned no grasps")
     p_cam = np.asarray(r["grasp_points"]) @ T[:3, :3].T + T[:3, 3]
-    ok, counts = G.candidates(
-        rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"], p_cam, r["base_T_cam"], r["q"]
+    ok, counts = G.candidates(rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"], p_cam)
+    picked, tried = G.choose_reachable(
+        rep, T, r["grasp_points"], ok, r["depth"], r["K"], r["base_T_cam"], r["q"], r["table_plane"]
     )
-    if not ok.any():
-        raise RuntimeError("no AnyGrasp grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()))
-    i, T_g, phi, p_cam, _ = G.choose(rep, T, r["grasp_points"], ok)
+    if picked is None:
+        raise RuntimeError(
+            "no AnyGrasp grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", unreachable {tried}"
+        )
+    i, T_g, phi, p_cam, _ = picked
     return {
         "cam_T_grasp": T_g,
         "phi": phi,

@@ -17,6 +17,6 @@ float64 width
 float64 depth
 float64 score
 int32 n_candidates
-int32 n_feasible                     # candidates passing the real-gripper check, near the dots and reachable
+int32 n_feasible                     # candidates passing the real-gripper check and near the dots
 int32 index
 sensor_msgs/Image overlay

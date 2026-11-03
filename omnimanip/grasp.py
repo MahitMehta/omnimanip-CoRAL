@@ -100,37 +100,30 @@ def feasible(rep, depth, K, mask, plane):
     return ok
 
 
-def reachable(rep, idx, depth, K, T_base_cam, q, plane):
-    """Candidates `idx` whose pre-grasp cuRobo can plan to from joints q (UR order), trying PRE_GRASPS in order as
-    execute does, against the frame's depth and the table slab. -> bool per candidate of rep."""
+def reaches(rep, i, T_base_cam, q):
+    """Whether cuRobo plans to grasp i's pre-grasp from joints q (UR order) in the mapped scene, trying PRE_GRASPS in
+    order as execute does."""
     from . import motion
 
-    motion.map_scene(depth, K, T_base_cam, q, plane=plane)
-    ok = np.zeros(rep["n"], bool)
-    for i in idx:
-        T = T_base_cam @ pose(rep, i)
-        tool0_T_g = motion.tool0_T_grasp(float(rep["depths"][i]))
-        for pre in PRE_GRASPS:
-            T_pre = T.copy()
-            T_pre[:3, 3] -= pre * T[:3, 0]
-            if motion.plan(q, T_pre @ np.linalg.inv(tool0_T_g), None, list(q))[0] is not None:
-                ok[i] = True
-                break
-    return ok
+    T = T_base_cam @ pose(rep, i)
+    tool0_T_g = motion.tool0_T_grasp(float(rep["depths"][i]))
+    for pre in PRE_GRASPS:
+        T_pre = T.copy()
+        T_pre[:3, 3] -= pre * T[:3, 0]
+        if motion.plan(q, T_pre @ np.linalg.inv(tool0_T_g), None, list(q))[0] is not None:
+            return True
+    return False
 
 
-def candidates(rep, depth, K, mask, plane, grasp_points_cam, T_base_cam, q):
+def candidates(rep, depth, K, mask, plane, grasp_points_cam):
     """The grasps the heatmap may pick (DEVIATIONS #27): pass the real-gripper check, hold the object (fingertips
     MIN_DEPTH past the grasp centre, opening at most MAX_OPEN: at the gripper's full 8.5 cm AnyGrasp found no pair of
-    contacts and the jaws can land on the object), within REACH_CAP of a grasp dot, and reachable (a pre-grasp
-    cuRobo plans to from joints q, against the depth and the table slab). -> (bool per candidate, counts)."""
+    contacts and the jaws can land on the object) and lie within REACH_CAP of a grasp dot. -> (bool per candidate, counts)."""
     ok = feasible(rep, depth, K, mask, plane)
     hold = ok & (np.asarray(rep["depths"]) >= MIN_DEPTH - 1e-6) & (np.asarray(rep["widths"]) <= MAX_OPEN)
     d = np.linalg.norm(rep["translations"][:, None] - np.asarray(grasp_points_cam)[None], axis=2).min(1)
     near = hold & (d <= REACH_CAP)
-    reach = reachable(rep, np.flatnonzero(near), depth, K, T_base_cam, q, plane)
-    return reach, {"proposed": int(rep["n"]), "real_gripper": int(ok.sum()), "holds": int(hold.sum()), "near_dots": int(near.sum()),
-                   "reachable": int(reach.sum())}
+    return near, {"proposed": int(rep["n"]), "real_gripper": int(ok.sum()), "holds": int(hold.sum()), "near_dots": int(near.sum())}
 
 
 def heat(x, grasp_points_cam):
@@ -162,6 +155,22 @@ def choose(rep, cam_T_can, grasp_points_can, ok=None):
     i, h = select(rep, p_cam, ok)
     T_g = pose(rep, i)
     return i, T_g, np.linalg.inv(T_g) @ cam_T_can, p_cam, h
+
+
+def choose_reachable(rep, cam_T_can, grasp_points_can, ok, depth, K, T_base_cam, q, plane):
+    """choose()'s pick that cuRobo can reach, best first: a refused grasp leaves the `ok` pool and the next pick is
+    tried, against the frame's depth and the table slab. -> (choose()'s result or None, picks tried)."""
+    from . import motion
+
+    motion.map_scene(depth, K, T_base_cam, q, plane=plane)
+    ok, tried = np.array(ok), 0
+    while ok.any():
+        picked = choose(rep, cam_T_can, grasp_points_can, ok)
+        tried += 1
+        if reaches(rep, picked[0], T_base_cam, q):
+            return picked, tried
+        ok[picked[0]] = False
+    return None, tried
 
 
 def overlay(rgb, K, rep, p_cam, i, up):
