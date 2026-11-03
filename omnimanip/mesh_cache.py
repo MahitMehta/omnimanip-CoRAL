@@ -22,7 +22,7 @@ from .config import ROOT
 
 CACHE_DIR = ROOT / "outputs" / "mesh_cache"
 POSE_CONTAINER, POSE_DIR = "PoseServer", "/tmp/omnimanip_mesh_cache"
-SIZE_TOL, MIN_IOU = 0.015, 0.7  # m: observed vs cached height; silhouette-vs-mask IoU to keep a mesh
+SIZE_TOL, MIN_IOU = 0.02, 0.7  # m: observed vs cached height; silhouette-vs-mask IoU to keep a mesh
 FILES = ("mesh.obj", "material.mtl", "material_0.png")
 
 
