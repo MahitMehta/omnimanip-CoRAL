@@ -207,7 +207,10 @@ def rrc_(r):
 def grasp(r):
     o = r["object"]
     T = np.asarray(o["cam_T_can"])
-    rep = G.anygrasp(r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0)
+    steer = {}
+    if r.get("top_down_deg", 0.0) > 0:  # straight down the table's normal (camera frame; up is +n)
+        steer = {"approach": -np.asarray(r["table_plane"]["n"], float), "approach_deg": r["top_down_deg"]}
+    rep = G.anygrasp(r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0, **steer)
     if not rep["n"]:
         raise RuntimeError("AnyGrasp returned no grasps")
     p_cam = np.asarray(r["grasp_points"]) @ T[:3, :3].T + T[:3, 3]

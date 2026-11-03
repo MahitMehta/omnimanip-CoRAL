@@ -401,7 +401,10 @@ def grasp(r, a):
                 V, F, np.array(o["cam_T_obj_gt"]), r.json("packet.json")["plane"]
             )
         else:
-            rep = G.anygrasp(r.rgb, r.depth, r.K, mask)
+            steer = {}
+            if a.top_down_deg is not None:  # straight down the table's normal (camera frame; up is +n)
+                steer = {"approach": -np.asarray(r.json("packet.json")["plane"]["n"], float), "approach_deg": a.top_down_deg}
+            rep = G.anygrasp(r.rgb, r.depth, r.K, mask, **steer)
         if not rep["n"]:
             print(f"{name}: AnyGrasp returned no grasps")
             continue
@@ -563,6 +566,12 @@ def main():
         "--sim-mesh-grasps",
         action="store_true",
         help="SIM ONLY (with --gt): privileged antipodal grasps on the ground-truth mesh instead of AnyGrasp",
+    )
+    ap.add_argument(
+        "--top-down-deg",
+        type=float,
+        default=None,
+        help="steer AnyGrasp to approaches within this angle of straight down the table's normal",
     )
     a = ap.parse_args()
     assert a.gt is None or a.sim, "--gt needs --sim"

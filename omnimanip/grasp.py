@@ -33,9 +33,10 @@ def backproject(depth, K, sel):
     ), (v, u)
 
 
-def anygrasp(rgb, depth, K, mask, dense=True):
+def anygrasp(rgb, depth, K, mask, dense=True, approach=None, approach_deg=30.0):
     """grasp_viz_node.process: object bbox + MARGIN as lims, bbox + CONTEXT as the cloud, collision on; `dense`
-    asks for AnyGrasp's dense proposals (no NMS). -> AnyGrasp reply (camera-frame grasps; frame x = approach,
+    asks for AnyGrasp's dense proposals (no NMS); `approach` (camera frame) and `approach_deg` steer AnyGrasp to
+    approaches within that angle of it. -> AnyGrasp reply (camera-frame grasps; frame x = approach,
     y = closing, z = normal; score-sorted)."""
     valid = (depth > 0.05) & (depth < 3.0)
     obj, _ = backproject(depth, K, valid & mask)
@@ -45,8 +46,11 @@ def anygrasp(rgb, depth, K, mask, dense=True):
     pts, cols = allp[inside], (rgb[v[inside], u[inside]].astype(np.float32) / 255.0)
     lims = [float(x) for x in (lo[0], hi[0], lo[1], hi[1], lo[2], hi[2])]
     cli = SidecarClient(f"tcp://{HOST}:{SIDECARS['anygrasp']}", 120_000, codec="pickle")
+    steer = {} if approach is None else {
+        "approach_steering": [float(x) for x in approach], "approach_thresh": float(np.radians(approach_deg))
+    }
     return cli.call(
-        {"points": pts, "colors": cols, "lims": lims, "collision_detection": True, "dense_grasp": dense}
+        {"points": pts, "colors": cols, "lims": lims, "collision_detection": True, "dense_grasp": dense, **steer}
     )
 
 

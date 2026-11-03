@@ -245,6 +245,7 @@ class Bridge(Node):
             table_plane={"n": list(req.table_plane[:3]), "d": float(req.table_plane[3])},
             base_T_cam=np.asarray(req.base_t_cam, float).reshape(4, 4),
             q=list(req.q),
+            top_down_deg=float(req.top_down_deg),
         )
         res.cam_t_grasp, res.grasp_t_obj = (
             conv.pose_of(r["cam_T_grasp"]),

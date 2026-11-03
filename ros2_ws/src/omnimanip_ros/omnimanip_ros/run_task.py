@@ -109,7 +109,7 @@ def _points_overlay(rgb, info, pts, path):
     cv2.imwrite(str(path), cv2.cvtColor(im, cv2.COLOR_RGB2BGR))
 
 
-def run(node, task, run, decide=True, mesh_cache=False):
+def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0):
     for d in (
         "marks",
         "objects",
@@ -351,6 +351,7 @@ def run(node, task, run, decide=True, mesh_cache=False):
             table_plane=[float(x) for x in packet["plane"]["n"]] + [float(packet["plane"]["d"])],
             base_t_cam=[float(x) for x in np.asarray(packet["t_base_cam"]["T"], float).ravel()],
             q=[float(packet["joints"]["q"][packet["joints"]["names"].index(n)]) for n in UR_JOINTS],
+            top_down_deg=top_down_deg,
         )
         _save(g.overlay, run / "grasp" / f"grasp_overlay_{name}.png")
         grasps[name] = g
@@ -431,6 +432,12 @@ def main():
         action="store_true",
         help="reuse each object's cached mesh when it matches (skips TRELLIS.2 + Any6D); cache new ones (omnimanip.mesh_cache)",
     )
+    ap.add_argument(
+        "--top-down-deg",
+        type=float,
+        default=0.0,
+        help="steer AnyGrasp to approaches within this angle of straight down the table's normal (0: off)",
+    )
     a, ros_args = ap.parse_known_args()
     out = Path(a.resume) if a.resume else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
     (out / "calls").mkdir(parents=True, exist_ok=True)
@@ -441,7 +448,7 @@ def main():
     threading.Thread(target=ex.spin, daemon=True).start()
     node.get_logger().info(f"run dir {out}" + (" (resumed)" if a.resume else ""))
     try:
-        run(node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache)
+        run(node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache, top_down_deg=a.top_down_deg)
     finally:
         ex.shutdown()
         rclpy.shutdown()

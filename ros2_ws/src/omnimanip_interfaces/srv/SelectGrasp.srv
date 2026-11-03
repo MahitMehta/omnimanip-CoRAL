@@ -7,6 +7,7 @@ geometry_msgs/Point[] grasp_points   # canonical frame (ProposePoints, kind "gra
 float64[4] table_plane               # camera frame n (3), d (packet plane): real-gripper check
 float64[16] base_t_cam               # capture's camera in base_link, row-major (packet t_base_cam): reachability
 float64[6] q                         # capture joints, UR order: reachability
+float64 top_down_deg                 # > 0: AnyGrasp approaches within this angle of straight down the table's normal
 ---
 bool success
 string message
