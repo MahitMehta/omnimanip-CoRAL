@@ -109,7 +109,7 @@ def _points_overlay(rgb, info, pts, path):
     cv2.imwrite(str(path), cv2.cvtColor(im, cv2.COLOR_RGB2BGR))
 
 
-def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0):
+def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_grasp=False):
     for d in (
         "marks",
         "objects",
@@ -352,6 +352,7 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0):
             base_t_cam=[float(x) for x in np.asarray(packet["t_base_cam"]["T"], float).ravel()],
             q=[float(packet["joints"]["q"][packet["joints"]["names"].index(n)]) for n in UR_JOINTS],
             top_down_deg=top_down_deg,
+            ideal_grasp=ideal_grasp,
         )
         _save(g.overlay, run / "grasp" / f"grasp_overlay_{name}.png")
         grasps[name] = g
@@ -438,7 +439,14 @@ def main():
         default=0.0,
         help="steer AnyGrasp to approaches within this angle of straight down the table's normal (0: off)",
     )
+    ap.add_argument(
+        "--ideal-grasp",
+        action="store_true",
+        help="objects with a hand-set grasp (grasp.IDEAL_GRASPS, e.g. the teapot's handle) use it instead of AnyGrasp; needs --mesh-cache",
+    )
     a, ros_args = ap.parse_known_args()
+    if a.ideal_grasp and not a.mesh_cache:
+        ap.error("--ideal-grasp needs --mesh-cache: its poses are set on the cached meshes")
     out = Path(a.resume) if a.resume else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
     (out / "calls").mkdir(parents=True, exist_ok=True)
     rclpy.init(args=ros_args)
@@ -448,7 +456,7 @@ def main():
     threading.Thread(target=ex.spin, daemon=True).start()
     node.get_logger().info(f"run dir {out}" + (" (resumed)" if a.resume else ""))
     try:
-        run(node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache, top_down_deg=a.top_down_deg)
+        run(node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache, top_down_deg=a.top_down_deg, ideal_grasp=a.ideal_grasp)
     finally:
         ex.shutdown()
         rclpy.shutdown()

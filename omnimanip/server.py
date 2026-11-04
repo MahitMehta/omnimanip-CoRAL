@@ -15,6 +15,7 @@ import traceback
 from functools import cache
 from pathlib import Path
 
+import cv2
 import msgpack
 import msgpack_numpy
 import numpy as np
@@ -207,20 +208,27 @@ def rrc_(r):
 def grasp(r):
     o = r["object"]
     T = np.asarray(o["cam_T_can"])
-    steer = {}
-    if r.get("top_down_deg", 0.0) > 0:  # straight down the table's normal (camera frame; up is +n)
-        steer = {"approach": -np.asarray(r["table_plane"]["n"], float), "approach_deg": r["top_down_deg"]}
-    rep = G.anygrasp(r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0, **steer)
-    if not rep["n"]:
-        raise RuntimeError("AnyGrasp returned no grasps")
-    p_cam = np.asarray(r["grasp_points"]) @ T[:3, :3].T + T[:3, 3]
-    ok, counts = G.candidates(rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"], p_cam)
+    rep = G.ideal_grasp(o["name"], o["mesh_path"], o["cam_T_obj"]) if r.get("ideal_grasp") else None
+    if rep is not None:  # hand-set pose: only the real-gripper and reach checks apply
+        # grown: SAM3's mask misses the thin handle's edge, and its pixels would count as another object at the fingers
+        own = cv2.dilate((np.asarray(o["mask"]) > 0).astype(np.uint8), np.ones((31, 31), np.uint8)) > 0
+        ok = G.feasible(rep, r["depth"], r["K"], own, r["table_plane"])
+        counts = {"ideal": rep["n"], "real_gripper": int(ok.sum())}
+    else:
+        steer = {}
+        if r.get("top_down_deg", 0.0) > 0:  # straight down the table's normal (camera frame; up is +n)
+            steer = {"approach": -np.asarray(r["table_plane"]["n"], float), "approach_deg": r["top_down_deg"]}
+        rep = G.anygrasp(r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0, **steer)
+        if not rep["n"]:
+            raise RuntimeError("AnyGrasp returned no grasps")
+        p_cam = np.asarray(r["grasp_points"]) @ T[:3, :3].T + T[:3, 3]
+        ok, counts = G.candidates(rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"], p_cam)
     picked, tried = G.choose_reachable(
         rep, T, r["grasp_points"], ok, r["depth"], r["K"], r["base_T_cam"], r["q"], r["table_plane"]
     )
     if picked is None:
         raise RuntimeError(
-            "no AnyGrasp grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", unreachable {tried}"
+            "no grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", unreachable {tried}"
         )
     i, T_g, phi, p_cam, _ = picked
     return {

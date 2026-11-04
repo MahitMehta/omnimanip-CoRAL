@@ -4,13 +4,15 @@ AnyGrasp proposes 6-DoF grasps; a Gaussian at each VLM grasp point is summed int
 The AnyGrasp call is the shared grasp service's, as in Albus's grasp_viz_node.py.
 """
 
+import filecmp
+import json
 from functools import cache
 
 import cv2
 import numpy as np
 from manip_bridge.zmq_client import SidecarClient
 
-from . import gripper, viz
+from . import gripper, mesh_cache, viz
 from .config import HOST, SIDECARS
 
 MARGIN, CONTEXT = (
@@ -23,6 +25,20 @@ TIP_CLEAR, TIP_LEN = 0.003, 0.02  # m: the fingertips (their last TIP_LEN) may c
 PRE_GRASPS = (0.08, 0.12, 0.16)  # m: execute's pre-grasp back-offs, in the order it tries them
 REACH_CAP = 0.05  # m: farthest a grasp may sit from a grasp dot to be considered
 MIN_DEPTH, MAX_OPEN = 0.0075, 0.08  # m: fingertips at least this far past the grasp centre; opening at most this
+# run_task --ideal-grasp: a hand-set grasp per object name, in the body frame of that object's cached mesh (mesh_id =
+# its meta.json id, so a replaced mesh is refused). Teapot: the handle's outer bar (-z end of the mesh, 0.7 cm thick
+# across x, 0.9 along z), straight down the mesh's up axis, jaws closing across it (horizontal pinch). Fingertips 1.75 cm
+# above the mesh's origin: 1 cm lower puts the palm into the handle's top.
+IDEAL_GRASPS = {
+    "teapot": {
+        "mesh_id": 1793654715,
+        "center": (0.0015, 0.0275, -0.0825),
+        "approach": (-0.05, -0.99, 0.10),
+        "closing": (1.0, 0.0, 0.0),
+        "width": 0.01,
+        "depth": 0.01,
+    },
+}
 
 
 def backproject(depth, K, sel):
@@ -98,6 +114,33 @@ def feasible(rep, depth, K, mask, plane):
             and (t_others.query(C[~palm])[0] > S[~palm, 3]).all()
         )
     return ok
+
+
+def ideal_grasp(name, mesh_path, cam_T_obj):
+    """The hand-set grasp for object `name` as an AnyGrasp-style reply: the pose and its 180 deg flip about the approach
+    (the gripper is symmetric). Refuses a mesh other than the cached one it was set on. None if `name` has no entry."""
+    g = IDEAL_GRASPS.get(name)
+    if g is None:
+        return None
+    d = mesh_cache.entry(name)
+    if d is None or json.loads((d / "meta.json").read_text())["id"] != g["mesh_id"] or not filecmp.cmp(mesh_path, d / "mesh.obj"):
+        raise RuntimeError(f"the ideal grasp of {name!r} was set on cached mesh {g['mesh_id']}, and this run's mesh isn't it")
+    x = np.asarray(g["approach"], float)
+    x /= np.linalg.norm(x)
+    y = np.asarray(g["closing"], float)
+    y = y - (y @ x) * x
+    y /= np.linalg.norm(y)
+    cam_T_obj = np.asarray(cam_T_obj, float)
+    rotations = [cam_T_obj[:3, :3] @ np.c_[x, s * y, s * np.cross(x, y)] for s in (1, -1)]
+    t = cam_T_obj[:3, :3] @ np.asarray(g["center"], float) + cam_T_obj[:3, 3]
+    return {
+        "n": 2,
+        "rotations": np.array(rotations),
+        "translations": np.array([t, t]),
+        "widths": np.full(2, g["width"]),
+        "depths": np.full(2, g["depth"]),
+        "scores": np.ones(2),
+    }
 
 
 def reaches(rep, i, T_base_cam, q):

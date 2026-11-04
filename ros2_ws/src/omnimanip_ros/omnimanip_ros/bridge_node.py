@@ -246,6 +246,7 @@ class Bridge(Node):
             base_T_cam=np.asarray(req.base_t_cam, float).reshape(4, 4),
             q=list(req.q),
             top_down_deg=float(req.top_down_deg),
+            ideal_grasp=bool(req.ideal_grasp),
         )
         res.cam_t_grasp, res.grasp_t_obj = (
             conv.pose_of(r["cam_T_grasp"]),
