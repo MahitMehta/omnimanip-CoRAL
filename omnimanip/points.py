@@ -19,6 +19,8 @@ MIN_CROP_PX = 512  # real crops whose long side is shorter are upscaled before g
 CROP_MARGIN = 0.1  # of the mask bbox per side, for every real crop: more of the 8-wide grid lands on the object (DEVIATIONS #14)
 DEPTH_WIN = 5  # px radius at 480 rows for the median depth around a selected dot
 FG_TOL = 0.02  # m: window depths this close to the nearest one are the object (thin parts bleed background)
+RAY_HIT = 0.003  # m: mesh vertices this close to a dot's ray are the surface it hits
+MISS_TOL = 0.05  # m: how far depth may be from the mesh's closest vertex when the dot's ray misses the mesh
 VIEW_PX = 512
 
 
@@ -90,11 +92,23 @@ def crop(rgb, mask, margin=CROP_MARGIN):
     return rgb[y0:y1, x0:x1], mask[y0:y1, x0:x1], (x0, y0)
 
 
-def lift(u, v, depth, K, mask, cam_T_can, win=DEPTH_WIN):
+def mesh_point(u, v, K, V_cam):
+    """The mesh surface at pixel (u, v), camera frame: along its ray at the nearest vertex within RAY_HIT of the ray,
+    or, if the ray misses the mesh, the vertex closest to the ray. -> (point, hit)."""
+    ray = np.array([(u - K[0, 2]) / K[0, 0], (v - K[1, 2]) / K[1, 1], 1.0])
+    ray /= np.linalg.norm(ray)
+    off = np.linalg.norm(V_cam - (V_cam @ ray)[:, None] * ray, axis=1)
+    near = off <= RAY_HIT
+    if near.any():
+        return ray * V_cam[near, 2].min() / ray[2], True
+    return V_cam[np.argmin(off)], False
+
+
+def lift(u, v, depth, K, mask, cam_T_can, V_can, win=DEPTH_WIN):
     """Pixel -> canonical point: median depth of valid mask pixels within `win` px (onboarding notes O4), over
     the foreground only (within FG_TOL of the nearest), since on thin parts (handle, spout) the aligned depth inside
-    the mask is largely the background behind them. With no valid pixel there, the nearest valid mask pixel is
-    used. -> (point, snapped)."""
+    the mask is largely the background behind them. A dot outside the mask, with no depth there, or with depth off
+    the registered mesh (vertices V_can, canonical) snaps onto the mesh. -> (point, used the mesh)."""
     H, W = depth.shape
     win = round(win * H / 480)
     y0, y1, x0, x1 = (
@@ -104,16 +118,21 @@ def lift(u, v, depth, K, mask, cam_T_can, win=DEPTH_WIN):
         min(u + win + 1, W),
     )
     ok = mask[y0:y1, x0:x1] & (depth[y0:y1, x0:x1] > 0)
-    snapped = not ok.any()
-    if snapped:
-        vv, uu = np.nonzero(mask & (depth > 0))
-        i = np.argmin((uu - u) ** 2 + (vv - v) ** 2)
-        u, v, z = int(uu[i]), int(vv[i]), float(depth[vv[i], uu[i]])
-    else:
+    z = None
+    if ok.any():
         d = depth[y0:y1, x0:x1][ok]
         z = float(np.median(d[d <= d.min() + FG_TOL]))
-    p = np.array([(u - K[0, 2]) * z / K[0, 0], (v - K[1, 2]) * z / K[1, 1], z])
-    return cam_T_can[:3, :3].T @ (p - cam_T_can[:3, 3]), snapped
+    p_mesh, hit = mesh_point(u, v, K, np.asarray(V_can) @ cam_T_can[:3, :3].T + cam_T_can[:3, 3])
+    inside = bool(mask[v, u])
+    use_mesh = not inside or z is None or abs(z - p_mesh[2]) > (FG_TOL if hit else MISS_TOL)
+    if use_mesh:
+        seen = "outside the mask" if not inside else "no depth" if z is None else f"depth {z:.3f} m"
+        print(f"WARNING dot ({u}, {v}): {seen}, snapped onto the mesh at {p_mesh[2]:.3f} m"
+              + ("" if hit else " (its ray misses the mesh: closest vertex)"), flush=True)
+        p = p_mesh
+    else:
+        p = np.array([(u - K[0, 2]) * z / K[0, 0], (v - K[1, 2]) * z / K[1, 1], z])
+    return cam_T_can[:3, :3].T @ (p - cam_T_can[:3, 3]), use_mesh
 
 
 # Orthographic canonical views for invisible points. Canonical frame: x front, y = z x x, z up.
@@ -162,17 +181,17 @@ def _ask_dot(img, keep, real=False, **fields):
     return tuple(rep["Selected dot"]), dots, g, rep
 
 
-def visible_point(rgb, depth, K, mask, cam_T_can, **fields):
+def visible_point(rgb, depth, K, mask, cam_T_can, V_can, **fields):
     """Visible and tangible part: SCAFFOLD dot on the real object crop, lifted with depth."""
     im, _, (x0, y0) = crop(rgb, mask)
     dot, dots, g, rep = _ask_dot(im, None, real=True, view="camera image", **fields)
     u, v = dots[dot]
-    p, snapped = lift(u + x0, v + y0, depth, K, mask, cam_T_can)
+    p, used_mesh = lift(u + x0, v + y0, depth, K, mask, cam_T_can, V_can)
     return {
         "point": p,
         "dot": dot,
         "pixel": (u + x0, v + y0),
-        "snapped": snapped,
+        "used_mesh": used_mesh,
         "vlm": rep,
         "images": [g],
     }
@@ -193,14 +212,14 @@ def invisible_point(mesh_can, **fields):
     return {"point": p, "dot": dots_sel, "vlm": reps, "images": images}
 
 
-def grasp_points(rgb, depth, K, mask, cam_T_can, **fields):
+def grasp_points(rgb, depth, K, mask, cam_T_can, V_can, **fields):
     """Grasp part: several dots on the object (only on-mask dots drawn), each lifted with depth."""
     im, m, (x0, y0) = crop(rgb, mask)
     g, dots, grid = gridded_crop(im, m)
     rep = vlm.query("grasp_points", [g], rows=grid[0], cols=grid[1], **fields)
     sel = [tuple(d) for d in rep["Selected dots"] if tuple(d) in dots]
     pts = [
-        lift(dots[d][0] + x0, dots[d][1] + y0, depth, K, mask, cam_T_can)[0]
+        lift(dots[d][0] + x0, dots[d][1] + y0, depth, K, mask, cam_T_can, V_can)[0]
         for d in sel
     ]
     return {"points": np.array(pts), "dots": sel, "vlm": rep, "images": [g]}
@@ -217,11 +236,12 @@ def textured_canonical_mesh(final_mesh_path, R):
 def propose(rgb, depth, K, mask, cam_T_can, final_mesh, R, element, **fields):
     """Stage 11 for one plan element: grasp dots for a grasped (passive) object, a real-crop dot for a visible
     and tangible part, else front/side render dots. -> result + "kind" and "points" (N, 3) canonical."""
+    mesh_can = textured_canonical_mesh(final_mesh, R)
     if element["action"] == "grasp" and element["type"] == "passive":
-        r = grasp_points(rgb, depth, K, mask, cam_T_can, **fields)
+        r = grasp_points(rgb, depth, K, mask, cam_T_can, mesh_can.vertices, **fields)
         return {**r, "kind": "grasp"}
     if element["part_visible_and_tangible"]:
-        r = visible_point(rgb, depth, K, mask, cam_T_can, **fields)
+        r = visible_point(rgb, depth, K, mask, cam_T_can, mesh_can.vertices, **fields)
         return {**r, "kind": "visible", "points": r["point"][None]}
-    r = invisible_point(textured_canonical_mesh(final_mesh, R), **fields)
+    r = invisible_point(mesh_can, **fields)
     return {**r, "kind": "invisible", "points": r["point"][None]}
