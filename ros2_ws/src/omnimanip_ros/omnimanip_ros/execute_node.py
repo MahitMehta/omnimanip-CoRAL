@@ -482,7 +482,13 @@ def run(node, a, log):
         node.send(Q, a.speed)
 
     # grasp primitive (supp. A.4 (a))
+    mesh = objects[A]["final_mesh"]
+    t0 = time.time()
+    call("fit_held", mesh_path=mesh)  # at the start: the fit would otherwise hold up the stage's first plan
+    log["grasp"]["fit_held_s"] = time.time() - t0
+    t0 = time.time()
     call("map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap), plane=packet["plane"])
+    log["grasp"]["map_s"] = time.time() - t0
     gate(a, "open the gripper")
     log["grasp"]["open"] = node.gripper(OPEN_GAP, a.effort)
     T_g = np.asarray(grasp["cam_T_grasp"], float)
@@ -515,11 +521,12 @@ def run(node, a, log):
     # the stage's primitive, closed loop; the held object leaves the map and rides on tool0 as spheres
     grow = round(MASK_GROW * masks[A].shape[0] / 480)
     grown = cv2.dilate(masks[A].astype(np.uint8), np.ones((2 * grow + 1,) * 2, np.uint8)) > 0
+    t0 = time.time()
     call(
         "map", depth=depth0, K=K, T_base_cam=B_C, q=list(q_cap), exclude=grown, plane=packet["plane"]
     )
+    map_s = time.time() - t0
     exclude = np.any(list(masks.values()), axis=0)
-    mesh = objects[A]["final_mesh"]
 
     def approach(T_t, T_p):
         T = T_t.copy()
@@ -529,7 +536,7 @@ def run(node, a, log):
 
     T_t, T_plan, solving, path, motion = None, np.eye(4), True, None, None
     T_start, t_stage, it = ee_cam(), time.time(), 0  # O9's path cost is measured from the stage's start pose
-    log[ACT] = {"updates": [], "plans": [], "stops": []}
+    log[ACT] = {"map_s": map_s, "updates": [], "plans": [], "stops": []}
 
     def rest_of_path():
         """From the current joints along `path`, past its nearest waypoint."""

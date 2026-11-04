@@ -71,14 +71,15 @@ def table_boxes(plane, T_base_cam):
 
 
 def map_scene(depth, K, T_base_cam, q, exclude=None, plane=None):
-    """Rebuild the ESDF from one depth frame: robot pixels removed by the sidecar (load_robot + q), `exclude`
-    pixels (e.g. the held object) zeroed first; with `plane`, the table box in the static channel (DEVIATIONS #33)."""
+    """Rebuild the ESDF from one depth frame: robot pixels removed by the sidecar (at q), `exclude` pixels (e.g. the
+    held object) zeroed first; with `plane`, the table box in the static channel (DEVIATIONS #33). The sidecar's robot
+    model is reloaded (~3 s) only with a new image size: integrate loads it itself after a sidecar restart."""
     global _mapper_shape
     c = cli()
     if depth.shape != _mapper_shape:  # the mapper's image size is fixed when built: follow the camera's profile
         c.call({"cmd": "configure", "image_height": depth.shape[0], "image_width": depth.shape[1]})
+        c.call({"cmd": "load_robot"})  # its segmenter keeps the image size it first saw
         _mapper_shape = depth.shape
-    c.call({"cmd": "load_robot"})
     c.call({"cmd": "reset"})
     d = np.where(exclude, 0.0, depth) if exclude is not None else depth
     c.call(

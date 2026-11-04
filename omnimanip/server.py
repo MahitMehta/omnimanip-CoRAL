@@ -320,6 +320,12 @@ def _held_spheres(mesh_path):
     return motion.attached_spheres(V, F, np.eye(4))
 
 
+def fit_held(r):
+    """Fit the object's spheres now, so the stage's first plan after the lift doesn't wait for them."""
+    _held_spheres(r["mesh_path"])
+    return {}
+
+
 def plan(r):
     """cuRobo plan to a tool0 goal; with "held" ({mesh_path, tool0_T_obj}) the object rides on tool0 as spheres."""
     h, spheres = r.get("held"), None
@@ -355,6 +361,7 @@ CMDS = {
     "grasp": grasp,
     "targetpose": targetpose,
     "map": map_,
+    "fit_held": fit_held,
     "plan": plan,
     "line": line,
     "kinematics": kinematics,
