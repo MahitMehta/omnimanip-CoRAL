@@ -27,16 +27,16 @@ REACH_CAP = 0.05  # m: farthest a grasp may sit from a grasp dot to be considere
 MIN_DEPTH, MAX_OPEN = 0.0075, 0.08  # m: fingertips at least this far past the grasp centre; opening at most this
 # run_task --ideal-grasp: a hand-set grasp per object name, in the body frame of that object's cached mesh (mesh_id =
 # its meta.json id, so a replaced mesh is refused). Teapot: the handle's outer bar (-z end of the mesh, 0.7 cm thick
-# across x, 0.9 along z), straight down the mesh's up axis, jaws closing across it (horizontal pinch). Fingertips 1.75 cm
-# above the mesh's origin: 1 cm lower puts the palm into the handle's top.
+# across x, 0.9 along z) at mid height, approached from the back at 45 deg to vertical, jaws closing across it (horizontal
+# pinch). Straight down, the pour points the gripper back at the base and the arm's own forearm runs through the teapot.
 IDEAL_GRASPS = {
     "teapot": {
         "mesh_id": 1793654715,
-        "center": (0.0015, 0.0275, -0.0825),
-        "approach": (-0.05, -0.99, 0.10),
+        "center": (0.0015, 0.0225, -0.0825),
+        "approach": (-0.035, -0.632, 0.775),
         "closing": (1.0, 0.0, 0.0),
         "width": 0.01,
-        "depth": 0.01,
+        "depth": 0.0125,
     },
 }
 
