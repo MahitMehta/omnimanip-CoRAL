@@ -346,7 +346,7 @@ def run(node, a, log):
         for k, v in stage["accepted"].items()
     }
     A, Pv, ACT = stage["active"], stage["passive"], stage["action"]
-    if a.distance_cm is not None and c["distance_m"] == 0:
+    if a.distance_cm is not None:
         c["distance_m"] = a.distance_cm / 100
     B_C = np.asarray(packet["t_base_cam"]["T"], float)
     C_B, K = np.linalg.inv(B_C), np.asarray(packet["K"], float)
@@ -588,7 +588,7 @@ def main():
         "--distance-cm",
         type=float,
         default=None,
-        help="TEST ONLY (as sim/execute.py): d to use when the VLM's is 0; negative = against the passive axis",
+        help="TEST ONLY: d to use instead of the VLM's; negative = against the passive axis",
     )
     a, ros_args = ap.parse_known_args()
     objects = json.loads((Path(a.run) / "objects.json").read_text())
