@@ -224,7 +224,10 @@ def _publish_grasps(node, rgb, depth, info, grasps):
     pub(MarkerArray, "/omnimanip/grasps/markers", markers)
 
 
-def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_grasp=False, grasps_only=False):
+def run(
+    node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_grasp=False, grasps_only=False,
+    low_res_mesh=False,
+):
     for d in (
         "marks",
         "objects",
@@ -288,6 +291,7 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
             decide=decide,
             run_dir=str(run),
             object_name=o.name if mesh_cache else "",
+            low_res_mesh=low_res_mesh,
         )
         can = node.call(
             "canonicalize",
@@ -536,6 +540,12 @@ def main():
         help="reuse each object's cached mesh when it matches (skips TRELLIS.2 + Any6D); cache new ones (omnimanip.mesh_cache)",
     )
     ap.add_argument(
+        "--low-res-mesh",
+        action="store_true",
+        help="save VRAM and time on meshes: implies --mesh-cache; new meshes use low-resolution TRELLIS.2 settings "
+        "(shared_perception.LOW_RES_TRELLIS, needs Trellis2Server-mahit) and are not cached",
+    )
+    ap.add_argument(
         "--top-down-deg",
         type=float,
         default=0.0,
@@ -552,6 +562,7 @@ def main():
         help="stop after the grasp stage and publish the proposed, filtered and chosen grasps for RViz (see the module docstring)",
     )
     a, ros_args = ap.parse_known_args()
+    a.mesh_cache = a.mesh_cache or a.low_res_mesh
     if a.ideal_grasp and not a.mesh_cache:
         ap.error("--ideal-grasp needs --mesh-cache: its poses are set on the cached meshes")
     out = Path(a.resume) if a.resume else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -565,7 +576,7 @@ def main():
     try:
         run(
             node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache, top_down_deg=a.top_down_deg,
-            ideal_grasp=a.ideal_grasp, grasps_only=a.grasps_only,
+            ideal_grasp=a.ideal_grasp, grasps_only=a.grasps_only, low_res_mesh=a.low_res_mesh,
         )
         if a.grasps_only:
             node.get_logger().info("grasps latched on /omnimanip/grasps/*; Ctrl-C to exit")

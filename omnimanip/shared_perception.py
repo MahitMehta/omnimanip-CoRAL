@@ -40,6 +40,14 @@ TOPICS = (
 cli = lambda name, timeout_s: SidecarClient(
     f"tcp://{HOST}:{SIDECARS[name]}", int(timeout_s * 1000)
 )
+# run_task --low-res-mesh. No max_num_tokens: only the cascade pipelines read it
+LOW_RES_TRELLIS = {
+    "pipeline_type": "512",
+    "sampler_steps": 8,
+    "remesh": False,
+    "decimation_target": 100000,
+    "texture_size": 1024,
+}
 GENERATE_LOCK = threading.Lock()  # TRELLIS.2 and Any6D share a GPU: one object at a time, even when registered at once
 
 
@@ -363,11 +371,12 @@ def marks(
     return {mid: ms.load_mask(mid) for mid in ms.ids()}, arm, report
 
 
-def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True, cache_name=None, plane=None):
+def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True, cache_name=None, plane=None, low_res=False):
     """run_scene step 3 for one mark: TRELLIS.2 canonical GLB -> Any6D metric final_mesh -> FoundationPose
     register on it with the re-rank + Orient Anything yaw decision (decide=False: the scorer's pick, as
     run_scene --no-decide). Copies final_mesh locally. With cache_name (and the table plane): the object's cached
-    mesh when it matches (mesh_cache), else generated and cached if it has no entry yet.
+    mesh when it matches (mesh_cache), else generated and cached if it has no entry yet. low_res: generate with
+    LOW_RES_TRELLIS and never cache the result, so a full-resolution run can't reuse it.
     -> record {cam_T_obj, fp_scorer, final_mesh (local path), decision, any6d, trellis2, mesh_cache}."""
     k, out_dir = key(mark_id), Path(out_dir)
     if cache_name:
@@ -380,8 +389,8 @@ def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True, cache_name
                 return {**rec, "mesh_cache": {"used": str(d), "iou": iou, "why": why}}
             print(f"[mesh cache] {cache_name!r}: registered mesh overlaps the mask {iou:.2f} "
                   f"(< {mesh_cache.MIN_IOU}): generating it afresh", flush=True)
-    rec = _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide)
-    if cache_name and mesh_cache.entry(cache_name) is None:
+    rec = _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, low_res=low_res)
+    if cache_name and not low_res and mesh_cache.entry(cache_name) is None:
         iou = _fit_iou(rec, K, mask)
         if iou >= mesh_cache.MIN_IOU:
             meta = mesh_cache.save(cache_name, rec["final_mesh"], rec["cam_T_obj"], plane, out_dir.name)
@@ -397,7 +406,7 @@ def _fit_iou(rec, K, mask):
     return float((sil & m).sum() / max((sil | m).sum(), 1))
 
 
-def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=None):
+def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=None, low_res=False):
     """register's pipeline for one mark; `cached` (a mesh_cache entry dir) replaces TRELLIS.2 + Any6D."""
     k = key(mark_id)
     dc = depth.copy()
@@ -410,7 +419,7 @@ def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=No
         laps("mesh_cache")
     else:
         with GENERATE_LOCK:
-            t2, a6 = _generate(k, rgb, dc, K, m8, out_dir, laps)
+            t2, a6 = _generate(k, rgb, dc, K, m8, out_dir, laps, low_res)
     pose = cli("pose", 300)
     rep = pose.call(
         {
@@ -468,9 +477,9 @@ def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=No
     }
 
 
-def _generate(k, rgb, dc, K, m8, out_dir, laps):
+def _generate(k, rgb, dc, K, m8, out_dir, laps, low_res=False):
     """TRELLIS.2 canonical GLB -> Any6D metric mesh. -> (trellis2 reply, any6d reply)."""
-    t2 = cli("trellis2", 400).call(
+    t2 = cli("trellis2_low_res" if low_res else "trellis2", 400).call(
         {
             "op": "generate",
             "rgb": rgb,
@@ -482,6 +491,7 @@ def _generate(k, rgb, dc, K, m8, out_dir, laps):
             "mask": m8 * 255,
             # no depth/K: they only trigger the sidecar's metric-scale branch, which run_scene records but
             # never uses (Any6D does the scaling); the GLB does not depend on them (DEVIATIONS #12)
+            **(LOW_RES_TRELLIS if low_res else {}),
         }
     )
     laps("trellis2")

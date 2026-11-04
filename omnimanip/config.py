@@ -17,6 +17,8 @@ HOST = os.getenv(
 SIDECARS = {
     "pose": 5667,
     "trellis2": 5669,
+    # Trellis2Server-mahit (same image and mounts as Albus's, server.py forked for the run_task --low-res-mesh options)
+    "trellis2_low_res": int(os.getenv("TRELLIS2_LOW_RES_PORT", "5679")),
     "sam3": 5670,
     # CuroboServer-OmniManip (same image and code as Albus's on 5671): motion.py resets and refills the ESDF, which
     # must never touch the live map his bridge feeds

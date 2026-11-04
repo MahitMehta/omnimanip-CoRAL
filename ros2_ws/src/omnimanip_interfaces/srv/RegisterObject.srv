@@ -9,6 +9,7 @@ int32 mark_id
 bool decide true                # false = FoundationPose's scorer pick (--no-decide on omnimanip.run / run_task)
 string run_dir                  # the mesh is copied to run_dir/objects/omni_m<id>/
 string object_name              # the plan's name: reuse / fill its mesh cache entry (run_task --mesh-cache); empty = off
+bool low_res_mesh false         # a newly generated mesh uses the low-resolution TRELLIS.2 settings (run_task --low-res-mesh)
 ---
 bool success
 string message

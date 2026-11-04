@@ -99,6 +99,7 @@ def register(r):
         decide=r["decide"],
         cache_name=r.get("object_name") or None,
         plane=json.loads((Path(r["run_dir"]) / "packet.json").read_text())["plane"] if r.get("object_name") else None,
+        low_res=r.get("low_res_mesh", False),
     )
     return {
         "mesh_path": rec["final_mesh"],

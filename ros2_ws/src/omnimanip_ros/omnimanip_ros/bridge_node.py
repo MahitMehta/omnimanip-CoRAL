@@ -147,6 +147,7 @@ class Bridge(Node):
             decide=req.decide,
             run_dir=req.run_dir,
             object_name=req.object_name,
+            low_res_mesh=req.low_res_mesh,
         )
         res.mesh_path, res.cam_t_obj = r["mesh_path"], conv.pose_of(r["cam_T_obj"])
         res.decision_json, res.record_json = r["decision_json"], r["record_json"]
