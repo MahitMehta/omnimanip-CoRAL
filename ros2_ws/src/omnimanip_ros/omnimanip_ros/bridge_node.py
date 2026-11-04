@@ -57,8 +57,6 @@ class Bridge(Node):
         super().__init__("omnimanip_bridge")
         self.capture_node = capture
         group = ReentrantCallbackGroup()
-        # one REQ socket per service: a socket strictly alternates send / recv
-        self.cli = {k: SidecarClient(ADDR, t * 1000) for k, t in TIMEOUT_S.items()}
         for name, typ, fn in (
             ("capture", srv.Capture, self.capture),
             ("marks", srv.Marks, self.marks),
@@ -92,7 +90,8 @@ class Bridge(Node):
         return cb
 
     def call(self, cmd, **payload):
-        return self.cli[cmd].call({"cmd": cmd, **payload})
+        # a REQ socket per call: a socket strictly alternates send / recv, and run_task calls a service concurrently
+        return SidecarClient(ADDR, TIMEOUT_S[cmd] * 1000).call({"cmd": cmd, **payload})
 
     # 1
     def capture(self, req, res):

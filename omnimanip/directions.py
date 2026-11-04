@@ -10,6 +10,7 @@ import trimesh
 from trimesh.visual import ColorVisuals
 
 from . import vlm
+from .points import GL_LOCK
 
 # Panels 1-6: i and i+3 are the same axis with opposite signs (supp. Fig. 12). Canonical: x front, y, z up.
 CANDIDATES = np.array(
@@ -57,23 +58,25 @@ def render_candidates(mesh_can, cam_T_can, K, size):
     pc = cam_T_can[:3, :3] @ c + cam_T_can[:3, 3]
     u0, v0 = K[0, 0] * pc[0] / pc[2] + K[0, 2], K[1, 1] * pc[1] / pc[2] + K[1, 2]
     cx, cy = K[0, 2] - u0 + W / 2, K[1, 2] - v0 + H / 2
-    renderer, panels, boxes = pyrender.OffscreenRenderer(W, H), [], []
-    for d in CANDIDATES:
-        scene = pyrender.Scene(
-            bg_color=[1.0, 1.0, 1.0, 1.0], ambient_light=[0.5, 0.5, 0.5]
-        )
-        scene.add(pyrender.Mesh.from_trimesh(mesh_can), pose=cam_T_can)
-        scene.add(pyrender.Mesh.from_trimesh(arrow(c, d, L)), pose=cam_T_can)
-        cam = pyrender.IntrinsicsCamera(K[0, 0], K[1, 1], cx, cy, znear=0.01, zfar=10)
-        scene.add(cam, pose=CV_TO_GL)
-        scene.add(pyrender.DirectionalLight(intensity=2.0), pose=CV_TO_GL)
-        rendered = renderer.render(scene)
-        assert rendered is not None
-        color, depth = rendered
-        ys, xs = np.nonzero(depth > 0)
-        boxes.append((xs.min(), ys.min(), xs.max(), ys.max()))
-        panels.append(np.asarray(color))
-    renderer.delete()
+    panels, boxes = [], []
+    with GL_LOCK:
+        renderer = pyrender.OffscreenRenderer(W, H)
+        for d in CANDIDATES:
+            scene = pyrender.Scene(
+                bg_color=[1.0, 1.0, 1.0, 1.0], ambient_light=[0.5, 0.5, 0.5]
+            )
+            scene.add(pyrender.Mesh.from_trimesh(mesh_can), pose=cam_T_can)
+            scene.add(pyrender.Mesh.from_trimesh(arrow(c, d, L)), pose=cam_T_can)
+            cam = pyrender.IntrinsicsCamera(K[0, 0], K[1, 1], cx, cy, znear=0.01, zfar=10)
+            scene.add(cam, pose=CV_TO_GL)
+            scene.add(pyrender.DirectionalLight(intensity=2.0), pose=CV_TO_GL)
+            rendered = renderer.render(scene)
+            assert rendered is not None
+            color, depth = rendered
+            ys, xs = np.nonzero(depth > 0)
+            boxes.append((xs.min(), ys.min(), xs.max(), ys.max()))
+            panels.append(np.asarray(color))
+        renderer.delete()
     x0, y0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
     x1, y1 = max(b[2] for b in boxes), max(b[3] for b in boxes)
     m = int(0.1 * max(x1 - x0, y1 - y0))

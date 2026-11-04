@@ -8,7 +8,7 @@ The run directory must be visible at the same path to this node and to omnimanip
     ros2 run omnimanip_ros run_task --task "Pour tea into the cup" --resume /path/to/outputs/runs/<stamp> [--no-decide]
 
 Every successful service reply is saved in <run>/calls/ in call order; --resume replays them, so the run picks up
-at the first call that failed or never ran (same capture, same plan). Resume with the flags the run started with.
+at the calls that failed or never ran (same capture, same plan). Resume with the flags the run started with.
 
 --grasps-only stops after stage 15 for the plan's grasp targets (capture, marks, partition, their registration and
 grasp dots, select_grasp), publishes the result latched and stays up until Ctrl-C. Frame = the capture's camera:
@@ -25,6 +25,7 @@ import json
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -76,11 +77,15 @@ class Runner(Node):
         }
         self.calls, self.n = calls_dir, 0  # saved replies, in call order
 
-    def call(self, name, **fields):
+    def slot(self):
+        """The next position in the call order; concurrent calls take theirs before they start, so it stays fixed."""
+        self.n += 1
+        return self.n - 1
+
+    def call(self, name, slot=None, **fields):
         """Blocking call; raises on an unavailable service or success=False. A reply saved by an earlier attempt of
         this run (same position in the call order) is replayed instead."""
-        saved = self.calls / f"{self.n:03d}_{name}.bin"
-        self.n += 1
+        saved = self.calls / f"{self.slot() if slot is None else slot:03d}_{name}.bin"
         if saved.exists():
             self.get_logger().info(f"{name}: replayed from {saved.name}")
             return deserialize_message(saved.read_bytes(), SERVICES[name].Response)
@@ -98,6 +103,15 @@ class Runner(Node):
             raise RuntimeError(f"{name}: {res.message}")
         saved.write_bytes(serialize_message(res))
         return res
+
+
+def _parallel(fn, items):
+    """fn over items at once, results in order. Waits for them all, then raises the first failure; the replies of
+    those that succeeded are saved, so --resume only repeats the rest."""
+    if not items:
+        return []
+    with ThreadPoolExecutor(len(items)) as pool:
+        return list(pool.map(fn, items))
 
 
 def _dump(o, path):
@@ -256,13 +270,15 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
     _dump(plan, run / "plan.json")
 
     # 4-9 register + canonicalize each task object that is a mark
+    # (concurrently with --mesh-cache: FoundationPose queues them, the waits overlap the CPU work)
     objects, models = {}, {}
     targets = {s.passive_object for s in plan_msg.stages if s.action == "grasp"}
-    for o in plan_msg.objects:
-        if o.mark_id not in masks or (grasps_only and o.name not in targets):
-            continue
+
+    def register(job):
+        o, reg_slot, can_slot = job
         reg = node.call(
             "register_object",
+            reg_slot,
             rgb=rgb,
             depth=depth,
             camera_info=info,
@@ -275,6 +291,7 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
         )
         can = node.call(
             "canonicalize",
+            can_slot,
             rgb=rgb,
             camera_info=info,
             mesh_path=reg.mesh_path,
@@ -282,6 +299,14 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
             decision_json=reg.decision_json,
             table_normal=[float(x) for x in packet["plane"]["n"]],
         )
+        return o, reg, can
+
+    jobs = [
+        (o, node.slot(), node.slot())
+        for o in plan_msg.objects
+        if o.mark_id in masks and (not grasps_only or o.name in targets)
+    ]
+    for o, reg, can in _parallel(register, jobs) if mesh_cache else map(register, jobs):
         _save(can.overlay, run / f"canonical_overlay_{o.name}.png")
         R = np.asarray(can.r_body_from_canon).reshape(3, 3)
         objects[o.name] = {
@@ -301,22 +326,31 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
         )
     _dump(objects, run / "objects.json")
 
-    # 11 points, 12 directions (per element of a registered object)
+    # 11 points, 12 directions, all concurrently (per element of a registered object)
     pts, dirs, parts = {}, {}, {}
     for e in plan_msg.elements:
         parts.setdefault(e.object, []).append(e.part)
-    for e in plan_msg.elements:
-        if e.object not in models or (grasps_only and e.action != "grasp"):  # the gripper has no mesh
-            continue
-        p = node.call(
+    elements = [
+        e
+        for e in plan_msg.elements
+        if e.object in models and (not grasps_only or e.action == "grasp")  # the gripper has no mesh
+    ]
+    calls = []
+    for e in elements:
+        calls.append((
             "propose_points",
-            rgb=rgb,
-            depth=depth,
-            camera_info=info,
-            task=task,
-            object=models[e.object],
-            element=e,
-        )
+            node.slot(),
+            {"rgb": rgb, "depth": depth, "camera_info": info, "task": task, "object": models[e.object], "element": e},
+        ))
+        if e.action != "grasp":
+            calls.append((
+                "propose_directions",
+                node.slot(),
+                {"camera_info": info, "task": task, "object": models[e.object], "element": e, "object_parts": parts[e.object]},
+            ))
+    replies = iter(_parallel(lambda c: node.call(c[0], c[1], **c[2]), calls))
+    for e in elements:
+        p = next(replies)
         tag = f"{e.action}_{e.object}_{e.part.replace(' ', '_')}"
         for i, g in enumerate(p.images):
             _save(g, run / "points" / f"{tag}_{i}.png")
@@ -334,14 +368,7 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
         }
         if e.action == "grasp":
             continue
-        d = node.call(
-            "propose_directions",
-            camera_info=info,
-            task=task,
-            object=models[e.object],
-            element=e,
-            object_parts=parts[e.object],
-        )
+        d = next(replies)
         _save(d.image, run / "directions" / f"{e.action}_{e.object}.png")
         dirs[e.object, e.action] = {
             "object": e.object,

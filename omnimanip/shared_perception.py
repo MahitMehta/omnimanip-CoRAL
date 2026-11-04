@@ -13,6 +13,7 @@ import csv
 import json
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -39,6 +40,7 @@ TOPICS = (
 cli = lambda name, timeout_s: SidecarClient(
     f"tcp://{HOST}:{SIDECARS[name]}", int(timeout_s * 1000)
 )
+GENERATE_LOCK = threading.Lock()  # TRELLIS.2 and Any6D share a GPU: one object at a time, even when registered at once
 
 
 class Laps(dict):
@@ -407,7 +409,8 @@ def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=No
         t2, a6 = None, {"mesh_path": mesh_cache.in_pose_container(cached)}
         laps("mesh_cache")
     else:
-        t2, a6 = _generate(k, rgb, dc, K, m8, out_dir, laps)
+        with GENERATE_LOCK:
+            t2, a6 = _generate(k, rgb, dc, K, m8, out_dir, laps)
     pose = cli("pose", 300)
     rep = pose.call(
         {

@@ -5,6 +5,8 @@ invisible or intangible parts are picked on gridded orthographic renders of the 
 several dots (only those on the object are drawn) for the grasp heatmap. All points are canonical-frame metres.
 """
 
+import threading
+
 import numpy as np
 import trimesh
 from PIL import Image, ImageDraw, ImageFont
@@ -22,6 +24,7 @@ FG_TOL = 0.02  # m: window depths this close to the nearest one are the object (
 RAY_HIT = 0.003  # m: mesh vertices this close to a dot's ray are the surface it hits
 MISS_TOL = 0.05  # m: how far depth may be from the mesh's closest vertex when the dot's ray misses the mesh
 VIEW_PX = 512
+GL_LOCK = threading.RLock()  # one pyrender renderer at a time: server.py runs points and directions concurrently
 
 
 def scaffold(img, grid=GRID, keep=None):
@@ -159,7 +162,8 @@ def render_view(mesh, view, px=VIEW_PX):
         pose=pose,
     )
     scene.add(pyrender.DirectionalLight(intensity=2.0), pose=pose)
-    rendered = pyrender.OffscreenRenderer(px, px).render(scene)
+    with GL_LOCK:
+        rendered = pyrender.OffscreenRenderer(px, px).render(scene)
     assert rendered is not None
     color = rendered[0]
     sign = float(x[right_ax])

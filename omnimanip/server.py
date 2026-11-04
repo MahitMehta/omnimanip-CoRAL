@@ -11,6 +11,7 @@ images are RGB uint8, depth float32 metres, masks bool or uint8.
 
 import json
 import os
+import threading
 import traceback
 from functools import cache
 from pathlib import Path
@@ -33,6 +34,8 @@ from . import targetpose as TP
 
 msgpack_numpy.patch()
 PORT = int(os.getenv("OMNIMANIP_PORT", "5690"))
+WORKERS = 8
+PARALLEL = {"register", "canonicalize", "points", "directions"}  # run_task calls these at once; every other command runs alone
 
 
 def _json(o):
@@ -357,19 +360,35 @@ CMDS = {
 }
 
 
-def main():
-    sock = zmq.Context().socket(zmq.REP)
-    sock.bind(f"tcp://*:{PORT}")
-    print(f"[omnimanip-server] listening on :{PORT}", flush=True)
+def worker(ctx):
+    sock = ctx.socket(zmq.REP)
+    sock.connect("inproc://workers")
     while True:
         req = msgpack.unpackb(sock.recv(), raw=False)
         cmd = req.pop("cmd", None)
         try:
-            rep = {"ok": True} if cmd == "ping" else {"ok": True, **CMDS[cmd](req)}
+            if cmd == "ping":
+                rep = {"ok": True}
+            elif cmd in PARALLEL:
+                rep = {"ok": True, **CMDS[cmd](req)}
+            else:
+                with Pt.GL_LOCK:
+                    rep = {"ok": True, **CMDS[cmd](req)}
         except Exception as e:  # noqa: BLE001 -- reported to the bridge as success=False
             traceback.print_exc()
             rep = {"ok": False, "error": f"{type(e).__name__}: {e}"}
         sock.send(msgpack.packb(rep, use_bin_type=True) or b"")
+
+
+def main():
+    ctx = zmq.Context()
+    front, back = ctx.socket(zmq.ROUTER), ctx.socket(zmq.DEALER)
+    front.bind(f"tcp://*:{PORT}")
+    back.bind("inproc://workers")
+    for _ in range(WORKERS):
+        threading.Thread(target=worker, args=(ctx,), daemon=True).start()
+    print(f"[omnimanip-server] listening on :{PORT}", flush=True)
+    zmq.proxy(front, back)
 
 
 if __name__ == "__main__":
