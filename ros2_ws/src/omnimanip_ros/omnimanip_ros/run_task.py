@@ -9,10 +9,20 @@ The run directory must be visible at the same path to this node and to omnimanip
 
 Every successful service reply is saved in <run>/calls/ in call order; --resume replays them, so the run picks up
 at the first call that failed or never ran (same capture, same plan). Resume with the flags the run started with.
+
+--grasps-only stops after stage 15 for the plan's grasp targets (capture, marks, partition, their registration and
+grasp dots, select_grasp), publishes the result latched and stays up until Ctrl-C. Frame = the capture's camera:
+    /omnimanip/grasps/markers              MarkerArray  namespaces <object>/proposed (red), /filtered (green), /chosen (blue)
+    /omnimanip/grasps/<object>/proposed    PoseArray    every AnyGrasp proposal, before our filters, score-sorted
+    /omnimanip/grasps/<object>/filtered    PoseArray    those passing real gripper, holds and near the dots
+    /omnimanip/grasps/<object>/chosen      PoseArray    the heatmap pick that cuRobo reaches (empty if none)
+    /omnimanip/grasps/cloud                PointCloud2  the captured frame
+In RViz, use Durability: Transient Local on all of them.
 """
 
 import argparse
 import json
+import re
 import threading
 import time
 from datetime import datetime
@@ -22,10 +32,16 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.serialization import deserialize_message, serialize_message
+from geometry_msgs.msg import Point, PoseArray
+from manip_bridge.grasp_viz_node import backproject, gripper_lines, xyzrgb_to_cloud
 from manip_bridge.img import image_to_depth_m, image_to_rgb
 from omnimanip_interfaces import srv
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import Header
+from visualization_msgs.msg import Marker, MarkerArray
 
 from . import conv
 
@@ -109,7 +125,92 @@ def _points_overlay(rgb, info, pts, path):
     cv2.imwrite(str(path), cv2.cvtColor(im, cv2.COLOR_RGB2BGR))
 
 
-def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_grasp=False):
+def _select_grasps(node, plan_msg, rgb, depth, info, models, pts, packet, run, top_down_deg, ideal_grasp, allow_no_pick=False):
+    """15 for every grasp stage's object: writes grasp/ (picked grasps only) -> {object: SelectGrasp reply}."""
+    grasps = {}
+    for s in plan_msg.stages:
+        if s.action != "grasp":
+            continue
+        name = s.passive_object
+        if name not in models:
+            node.get_logger().warn(f"grasp: skipped {name}, it has no mark")
+            continue
+        g = node.call(
+            "select_grasp",
+            rgb=rgb,
+            depth=depth,
+            camera_info=info,
+            object=models[name],
+            grasp_points=[conv.point(q) for q in pts[name, "grasp"]["points"]],
+            table_plane=[float(x) for x in packet["plane"]["n"]] + [float(packet["plane"]["d"])],
+            base_t_cam=[float(x) for x in np.asarray(packet["t_base_cam"]["T"], float).ravel()],
+            q=[float(packet["joints"]["q"][packet["joints"]["names"].index(n)]) for n in UR_JOINTS],
+            top_down_deg=top_down_deg,
+            ideal_grasp=ideal_grasp,
+            allow_no_pick=allow_no_pick,
+        )
+        _save(g.overlay, run / "grasp" / f"grasp_overlay_{name}.png")
+        grasps[name] = g
+    _dump(
+        [
+            {
+                "object": n,
+                "n": g.n_candidates,
+                "n_feasible": g.n_feasible,
+                "index": g.index,
+                "score": g.score,
+                "width": g.width,
+                "depth": g.depth,
+                "cam_T_grasp": conv.T_of(g.cam_t_grasp),
+                "phi_grasp_T_obj": conv.T_of(g.grasp_t_obj),
+            }
+            for n, g in grasps.items()
+            if g.index >= 0
+        ],
+        run / "grasp" / "grasp.json",
+    )
+    return grasps
+
+
+def _publish_grasps(node, rgb, depth, info, grasps):
+    """The latched topics of --grasps-only (module docstring). Zero stamps, so RViz needs no TF at the capture's time."""
+    hdr = Header(frame_id=rgb.header.frame_id)
+    qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+    pub = lambda typ, topic, msg: node.create_publisher(typ, topic, qos).publish(msg)
+
+    d, im = image_to_depth_m(depth), image_to_rgb(rgb)
+    valid = np.zeros(d.shape, bool)
+    valid[::2, ::2] = True  # every 2nd pixel each way
+    pts, (v, u) = backproject(d, np.asarray(info.k, float).reshape(3, 3), valid & (d > 0.05) & (d < 3.0))
+    pub(PointCloud2, "/omnimanip/grasps/cloud", xyzrgb_to_cloud(pts, im[v, u].astype(np.float32) / 255.0, hdr))
+
+    markers = MarkerArray()
+    for name, g in grasps.items():
+        n = len(g.candidates)
+        sets = {
+            "proposed": (range(n), (1.0, 0.1, 0.1, 0.35), 0.001),
+            "filtered": ([i for i in range(n) if g.candidate_ok[i]], (0.1, 1.0, 0.1, 1.0), 0.002),
+            "chosen": ([g.index] if g.index >= 0 else [], (0.1, 0.4, 1.0, 1.0), 0.005),
+        }
+        for kind, (idx, (cr, cg, cb, ca), thick) in sets.items():
+            poses = [g.candidates[i] for i in idx]
+            pub(PoseArray, f"/omnimanip/grasps/{re.sub(r'[^0-9A-Za-z_]', '_', name)}/{kind}", PoseArray(header=hdr, poses=poses))
+            m = Marker(header=hdr, ns=f"{name}/{kind}", id=0, type=Marker.LINE_LIST, action=Marker.ADD)
+            m.pose.orientation.w, m.scale.x = 1.0, thick
+            m.color.r, m.color.g, m.color.b, m.color.a = cr, cg, cb, ca
+            for i in idx:
+                T = conv.T_of(g.candidates[i])
+                lines = gripper_lines(T[:3, 3], T[:3, :3], g.candidate_widths[i], g.candidate_depths[i])
+                m.points.extend(Point(x=float(p[0]), y=float(p[1]), z=float(p[2])) for p in lines)
+            markers.markers.append(m)
+        node.get_logger().info(
+            f"{name}: {n} proposed, {sum(g.candidate_ok)} filtered, "
+            + (f"chosen #{g.index}" if g.index >= 0 else "none chosen")
+        )
+    pub(MarkerArray, "/omnimanip/grasps/markers", markers)
+
+
+def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_grasp=False, grasps_only=False):
     for d in (
         "marks",
         "objects",
@@ -156,8 +257,9 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
 
     # 4-9 register + canonicalize each task object that is a mark
     objects, models = {}, {}
+    targets = {s.passive_object for s in plan_msg.stages if s.action == "grasp"}
     for o in plan_msg.objects:
-        if o.mark_id not in masks:
+        if o.mark_id not in masks or (grasps_only and o.name not in targets):
             continue
         reg = node.call(
             "register_object",
@@ -204,7 +306,7 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
     for e in plan_msg.elements:
         parts.setdefault(e.object, []).append(e.part)
     for e in plan_msg.elements:
-        if e.object not in models:  # the gripper has no mesh
+        if e.object not in models or (grasps_only and e.action != "grasp"):  # the gripper has no mesh
             continue
         p = node.call(
             "propose_points",
@@ -254,6 +356,15 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
     _dump(list(pts.values()), run / "points" / "points.json")
     _points_overlay(rgb, info, pts.values(), run / "points" / "points_overlay.png")
     _dump(list(dirs.values()), run / "directions" / "directions.json")
+
+    if grasps_only:
+        grasps = _select_grasps(
+            node, plan_msg, rgb, depth, info, models, pts, packet, run, top_down_deg, ideal_grasp, allow_no_pick=True
+        )
+        if not grasps:
+            raise RuntimeError("the plan has no grasp stage on a marked object: name what to grasp in --task")
+        _publish_grasps(node, rgb, depth, info, grasps)
+        return
 
     # 13 constraints, 14 RRC (non-grasp stages)
     stages, accepted = [], {}
@@ -336,43 +447,7 @@ def run(node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_
         )
 
     # 15 grasp (grasp stages)
-    grasps = {}
-    for s in plan_msg.stages:
-        if s.action != "grasp":
-            continue
-        name = s.passive_object
-        g = node.call(
-            "select_grasp",
-            rgb=rgb,
-            depth=depth,
-            camera_info=info,
-            object=models[name],
-            grasp_points=[conv.point(q) for q in pts[name, "grasp"]["points"]],
-            table_plane=[float(x) for x in packet["plane"]["n"]] + [float(packet["plane"]["d"])],
-            base_t_cam=[float(x) for x in np.asarray(packet["t_base_cam"]["T"], float).ravel()],
-            q=[float(packet["joints"]["q"][packet["joints"]["names"].index(n)]) for n in UR_JOINTS],
-            top_down_deg=top_down_deg,
-            ideal_grasp=ideal_grasp,
-        )
-        _save(g.overlay, run / "grasp" / f"grasp_overlay_{name}.png")
-        grasps[name] = g
-    _dump(
-        [
-            {
-                "object": n,
-                "n": g.n_candidates,
-                "n_feasible": g.n_feasible,
-                "index": g.index,
-                "score": g.score,
-                "width": g.width,
-                "depth": g.depth,
-                "cam_T_grasp": conv.T_of(g.cam_t_grasp),
-                "phi_grasp_T_obj": conv.T_of(g.grasp_t_obj),
-            }
-            for n, g in grasps.items()
-        ],
-        run / "grasp" / "grasp.json",
-    )
+    grasps = _select_grasps(node, plan_msg, rgb, depth, info, models, pts, packet, run, top_down_deg, ideal_grasp)
 
     # 16 target pose (stages with an accepted constraint)
     exclude = np.any([conv.mask_of(m) for m in masks.values()], axis=0)
@@ -444,6 +519,11 @@ def main():
         action="store_true",
         help="objects with a hand-set grasp (grasp.IDEAL_GRASPS, e.g. the teapot's handle) use it instead of AnyGrasp; needs --mesh-cache",
     )
+    ap.add_argument(
+        "--grasps-only",
+        action="store_true",
+        help="stop after the grasp stage and publish the proposed, filtered and chosen grasps for RViz (see the module docstring)",
+    )
     a, ros_args = ap.parse_known_args()
     if a.ideal_grasp and not a.mesh_cache:
         ap.error("--ideal-grasp needs --mesh-cache: its poses are set on the cached meshes")
@@ -456,10 +536,18 @@ def main():
     threading.Thread(target=ex.spin, daemon=True).start()
     node.get_logger().info(f"run dir {out}" + (" (resumed)" if a.resume else ""))
     try:
-        run(node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache, top_down_deg=a.top_down_deg, ideal_grasp=a.ideal_grasp)
+        run(
+            node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache, top_down_deg=a.top_down_deg,
+            ideal_grasp=a.ideal_grasp, grasps_only=a.grasps_only,
+        )
+        if a.grasps_only:
+            node.get_logger().info("grasps latched on /omnimanip/grasps/*; Ctrl-C to exit")
+            threading.Event().wait()
+    except KeyboardInterrupt:
+        pass
     finally:
         ex.shutdown()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

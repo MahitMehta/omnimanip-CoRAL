@@ -9,6 +9,7 @@ float64[16] base_t_cam               # capture's camera in base_link, row-major 
 float64[6] q                         # capture joints, UR order: reachability
 float64 top_down_deg                 # > 0: AnyGrasp approaches within this angle of straight down the table's normal
 bool ideal_grasp                     # use the object's hand-set grasp (grasp.IDEAL_GRASPS) if its name has one
+bool allow_no_pick                   # no grasp left to pick: reply with index -1 and the candidates, not a failure
 ---
 bool success
 string message
@@ -19,5 +20,9 @@ float64 depth
 float64 score
 int32 n_candidates
 int32 n_feasible                     # candidates passing the real-gripper check and near the dots
-int32 index
+int32 index                          # into candidates; -1: none picked (allow_no_pick)
 sensor_msgs/Image overlay
+geometry_msgs/Pose[] candidates      # every proposal before our filters, camera frame, score-sorted
+float64[] candidate_widths
+float64[] candidate_depths
+bool[] candidate_ok                  # passes the filters (real gripper, holds, near the dots)

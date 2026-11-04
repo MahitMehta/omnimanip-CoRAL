@@ -247,6 +247,7 @@ class Bridge(Node):
             q=list(req.q),
             top_down_deg=float(req.top_down_deg),
             ideal_grasp=bool(req.ideal_grasp),
+            allow_no_pick=bool(req.allow_no_pick),
         )
         res.cam_t_grasp, res.grasp_t_obj = (
             conv.pose_of(r["cam_T_grasp"]),
@@ -255,6 +256,10 @@ class Bridge(Node):
         res.width, res.depth, res.score = r["width"], r["depth"], r["score"]
         res.n_candidates, res.n_feasible, res.index = int(r["n"]), int(r["n_feasible"]), int(r["index"])
         res.overlay = conv.rgb_msg(r["overlay"], req.rgb.header)
+        res.candidates = [conv.pose_of(T) for T in r["candidates"]]
+        res.candidate_widths = [float(x) for x in r["candidate_widths"]]
+        res.candidate_depths = [float(x) for x in r["candidate_depths"]]
+        res.candidate_ok = [bool(x) for x in r["candidate_ok"]]
 
     # 16
     def targetpose(self, req, res):

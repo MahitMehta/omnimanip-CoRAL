@@ -226,19 +226,37 @@ def grasp(r):
     picked, tried = G.choose_reachable(
         rep, T, r["grasp_points"], ok, r["depth"], r["K"], r["base_T_cam"], r["q"], r["table_plane"]
     )
+    why = "no grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", unreachable {tried}"
+    all_cands = {
+        "n": int(rep["n"]),
+        "n_feasible": int(ok.sum()),
+        "candidates": np.array([G.pose(rep, k) for k in range(rep["n"])]),
+        "candidate_widths": np.asarray(rep["widths"], float),
+        "candidate_depths": np.asarray(rep["depths"], float),
+        "candidate_ok": np.asarray(ok, bool),
+    }
     if picked is None:
-        raise RuntimeError(
-            "no grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", unreachable {tried}"
-        )
+        if not r.get("allow_no_pick"):
+            raise RuntimeError(why)
+        print(why, flush=True)
+        return {
+            **all_cands,
+            "cam_T_grasp": np.eye(4),
+            "phi": np.eye(4),
+            "width": 0.0,
+            "depth": 0.0,
+            "score": 0.0,
+            "index": -1,
+            "overlay": r["rgb"],
+        }
     i, T_g, phi, p_cam, _ = picked
     return {
+        **all_cands,
         "cam_T_grasp": T_g,
         "phi": phi,
         "width": float(rep["widths"][i]),
         "depth": float(rep["depths"][i]),
         "score": float(rep["scores"][i]),
-        "n": int(rep["n"]),
-        "n_feasible": int(ok.sum()),
         "index": i,
         "overlay": G.overlay(r["rgb"], r["K"], rep, p_cam, i, T[:3, 2]),
     }

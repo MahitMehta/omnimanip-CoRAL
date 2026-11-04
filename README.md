@@ -84,7 +84,7 @@ Everything runs on CoRAL (`ssh coral`) except the robot laptop's driver, camera 
 6. **Plan** (no motion, ~9 min), then check `canonical_overlay_*`, `grasp/`, `rrc/`, `targetpose/` in the run dir. Don't move the objects after this. If RRC accepts nothing the run stops there; to ask the VLM again on the same capture, delete `calls/*_rrc.bin` and run with `--resume <run dir>`.
    ```bash
    docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \
-     ros2 run omnimanip_ros run_task --task "<instruction>" --out $RUNS_DIR'   # e.g. "Pour tea into the cup"; add --no-decide to skip the yaw decision, --top-down-deg 15 to steer AnyGrasp to near-vertical approaches, --mesh-cache --ideal-grasp to use the hand-set grasp of objects that have one
+     ros2 run omnimanip_ros run_task --task "<instruction>" --out $RUNS_DIR'   # e.g. "Pour tea into the cup"; add --no-decide to skip the yaw decision, --top-down-deg 15 to steer AnyGrasp to near-vertical approaches, --mesh-cache --ideal-grasp to use the hand-set grasp of objects that have one, --grasps-only to stop after stage 15 and publish the proposed, filtered and chosen grasps on /omnimanip/grasps/* for RViz (fixed frame camera_color_optical_frame, Durability: Transient Local)
    ```
 7. **Execute**: 10 % speed, Enter at every motion (anything else stops; Ctrl-C cancels a motion). Before each gate, check the path in RViz: a Path display on `/omnimanip/ee_path`, fixed frame `base_link`. Writes `exec.json`.
    ```bash
