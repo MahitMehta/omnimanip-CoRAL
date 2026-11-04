@@ -16,8 +16,9 @@ the gripper at its last measured grasp, others stay at their last pose; both are
 gripper through gripper-control's /gripper/gripper_cmd (GripperCommand). Planning, IK and O9 run on the
 omnimanip.server sidecar (cuRobo behind it); kinematics are the planner's URDF (assets/ur5e_robotiq.urdf).
 
---mock-tracking (dry runs on the UR driver's mock hardware and gripper-control's mock backend): no camera or
-FoundationPose; the objects stay at their planned poses and the held one moves rigidly with the grasp.
+--no-tracking: no camera or FoundationPose; the objects stay at their planned poses and the held one moves rigidly
+with the grasp, at the plan's Phi, and the stage solves O9 and plans once, with no re-solves or re-plans. The arm and gripper still move: for an object placed by hand, which track can't
+follow, or for dry runs on the UR driver's mock hardware and gripper-control's mock backend.
 
 Every motion stops at a gate first (Enter = go, anything else = stop; --gate first: only the first move of each
 phase), its path latched just before on /omnimanip/trajectory and its tool0 positions on /omnimanip/ee_path
@@ -427,7 +428,7 @@ def run(node, a, log):
     seen = {}  # the held object's last measured Phi (grasp -> object), for when tracking goes stale
 
     def tracked(name):
-        if a.mock_tracking:  # dry run: planned poses; the held object rigid in the grasp (the grasp's Phi)
+        if a.no_tracking:  # planned poses; the held object rigid in the grasp (the grasp's Phi)
             if name == A and held:
                 return ee_cam() @ np.asarray(grasp["phi_grasp_T_obj"], float)
             return np.asarray(objects[name]["cam_T_can"], float)
@@ -561,7 +562,10 @@ def run(node, a, log):
                 T_t = np.asarray(r["cam_T_ee_target"], float)
                 solve_s = time.time() - t0
                 accepted = bool(r["accepted"])
-                solving = not accepted or np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
+                # no tracking: nothing new to re-solve from, so one solve and one plan
+                solving = not a.no_tracking and (
+                    not accepted or np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
+                )
                 phi0 = phi if it == 0 else phi0
                 d_t, d_r = delta(T_t, T_plan)
                 moved = accepted and (path is None or d_t > REPLAN_T or d_r > REPLAN_R)
@@ -692,9 +696,9 @@ def main():
     ap.add_argument("--controller", default="scaled_joint_trajectory_controller")
     ap.add_argument("--gate", choices=("all", "first", "none"), default="all")
     ap.add_argument(
-        "--mock-tracking",
+        "--no-tracking",
         action="store_true",
-        help="DRY RUN: no FoundationPose; objects at their planned poses, the held one rigid in the grasp",
+        help="no FoundationPose: objects at their planned poses, the held one rigid in the grasp; one O9 solve and one plan per stage. The robot still moves",
     )
     ap.add_argument(
         "--distance-cm",
@@ -705,7 +709,7 @@ def main():
     a, ros_args = ap.parse_known_args()
     objects = json.loads((Path(a.run) / "objects.json").read_text())
     rclpy.init(args=ros_args)
-    keys = [] if a.mock_tracking else [f"omni_m{o['mark']}" for o in objects.values()]
+    keys = [] if a.no_tracking else [f"omni_m{o['mark']}" for o in objects.values()]
     node = Executor(keys, a.controller)
     ex = MultiThreadedExecutor()
     ex.add_node(node)

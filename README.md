@@ -94,7 +94,7 @@ Everything runs on CoRAL (`ssh coral`) except the robot laptop's driver, camera 
 8. **After**: `docker stop OmniManipROS`, kill the sidecar. Copy a run home with
    `rsync -a --exclude '*.obj' --exclude '*.glb' coral:omnimanip/outputs/runs/<stamp> outputs/runs/`.
 
-Dry runs without the robot: replay a bag (or launch the UR driver with `use_fake_hardware:=true`) and gripper-control with `GRIPPER_BACKEND=mock`, all on another domain (`ROS_DOMAIN_ID=67`), and `execute --mock-tracking --controller joint_trajectory_controller`.
+Dry runs without the robot: replay a bag (or launch the UR driver with `use_fake_hardware:=true`) and gripper-control with `GRIPPER_BACKEND=mock`, all on another domain (`ROS_DOMAIN_ID=67`), and `execute --no-tracking --controller joint_trajectory_controller`.
 
 ## Pending (optional)
 
