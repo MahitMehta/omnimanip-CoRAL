@@ -325,8 +325,8 @@ def plan(r):
     if h is not None:
         s, T = _held_spheres(h["mesh_path"]), np.asarray(h["tool0_T_obj"], float)
         spheres = np.c_[s[:, :3] @ T[:3, :3].T + T[:3, 3], s[:, 3]]
-    path, rep = motion.plan(r["q"], r["goal"], spheres, r.get("q_goal_ref"))
-    return {"path": path, "reason": rep.get("reason", "")}
+    path, rep = motion.plan(r["q"], r["goal"], spheres, r.get("q_goal_ref"), r.get("alternatives", 1))
+    return {"path": path, "reason": rep.get("reason", ""), "goal_failures": rep.get("goal_failures", [])}
 
 
 def line(r):

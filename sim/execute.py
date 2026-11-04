@@ -53,8 +53,8 @@ PRE_GRASP = (
 STEP_T, STEP_R = 0.01, np.radians(3)  # max Cartesian waypoint spacing
 RESOLVE_STOP = 0.02  # m: stop re-solving O9 this close to the target (O10)
 REPLAN_T, REPLAN_R = (
-    0.01,
-    np.radians(3),
+    0.02,
+    np.radians(5),
 )  # re-plan when a re-solved target moves this far
 CHUNK = 8  # path waypoints tracked per tracker update
 LIFT = 0.10  # m straight up after the grasp closes, so the planned move to the target starts out of contact

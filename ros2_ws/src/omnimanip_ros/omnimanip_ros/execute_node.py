@@ -1,12 +1,14 @@
 """OmniManip execution on the UR5e (paper Sec. 3.3 closed-loop execution; supp. A.4 primitives; onboarding notes
-O10) for a run_task run: the hardware counterpart of sim/execute.py, same primitives and loop.
+O10) for a run_task run: the hardware counterpart of sim/execute.py, same primitives.
 
   grasp  cuRobo move to 8 cm in front of the grasp pose (12 / 16 cm if refused), straight in, close, straight
          10 cm up (DEVIATIONS #33)
   pour   cuRobo move to the O9 target pose carrying the object; hold
   place  cuRobo move to v = |d| in front of the target along the passive axis, straight to the target, open
-  The target is re-solved on every tracker update (Phi re-measured from the tracked active pose) until the EE is
-  within 2 cm of it, and re-planned when it moves 1 cm / 3 deg.
+  The planned path goes to the controller as one goal, and the target is re-solved on every tracker update while the
+  arm moves (Phi re-measured from the tracked active pose and the joints at its frame's arrival) until the EE is within
+  2 cm of it. When the target moves 2 cm / 5 deg from the plan's, a replan is tried without stopping; if it can be
+  planned the goal is cancelled and the arm re-plans from rest, and if not the current goal runs on.
 
 Tracking: FoundationPose "track" on every synced camera frame (drop-if-busy) for the run's registered sessions
 (omni_m<id>, made by register_object). With no fresh pose, execution goes on with a warning: the held object rides on
@@ -30,6 +32,7 @@ import json
 import os
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import cv2
@@ -66,8 +69,8 @@ POSE_ADDR = os.environ.get("POSE_ADDR", "tcp://127.0.0.1:5667")
 PRE_GRASP = (0.08, 0.12, 0.16)  # m; as sim/execute.py
 LIFT = 0.10  # m straight up after closing (DEVIATIONS #33)
 RESOLVE_STOP = 0.02  # m (O10)
-REPLAN_T, REPLAN_R = 0.01, np.radians(3)
-CHUNK = 8  # planned waypoints sent per tracker update
+REPLAN_T, REPLAN_R = 0.02, np.radians(5)
+IK_ALTERNATIVES = 5  # distinct IK solutions the stage's first plan tries, nearest first, before cuRobo chooses one
 MASK_GROW = 5  # px at 480 rows: held object's mask grown before it leaves the map
 DWELL_S = 2.0  # held at the pour pose
 OPEN_GAP, CLOSE_GAP = (
@@ -79,6 +82,8 @@ START_TOL, ARRIVE_TOL = 0.01, 0.01  # rad
 TRACK_MAX_AGE = 1.0  # s: an older tracked pose is not used
 TRACK_WAIT, STALE_WAIT = 5.0, 0.2  # s: wait for a fresh pose; the same once that object is known to be stale
 TRACK_SLOW = 1.0  # s: a longer gap between synced frames, or track call, is logged
+JOINT_HISTORY = 2000  # /joint_states samples kept, to pair a tracked pose with the joints at its frame's arrival
+CANCEL_WAIT, SETTLE_TOL = 2.0, 1e-3  # s for the driver to take a cancel, and then for the arm to stop; rad per 50 ms
 
 
 class Stop(Exception):
@@ -88,7 +93,7 @@ class Stop(Exception):
 class Executor(Node):
     def __init__(self, keys, controller):
         super().__init__("omnimanip_execute")
-        self.q, self.qlock = None, threading.Lock()
+        self.q, self.qlock, self.q_hist = None, threading.Lock(), deque(maxlen=JOINT_HISTORY)
         self.poses, self.plock, self.busy = {}, threading.Lock(), False
         self.keys, self.info = keys, None
         self.stale, self.events = {}, []  # key -> when it went stale; what track_events records in exec.json
@@ -136,6 +141,7 @@ class Executor(Node):
                 self.q = np.array(
                     [msg.position[list(msg.name).index(n)] for n in UR_JOINTS]
                 )
+                self.q_hist.append((time.time(), self.q))
 
     def _on_info(self, msg):
         self.info = msg
@@ -171,7 +177,7 @@ class Executor(Node):
                 if took > TRACK_SLOW:
                     self.event("slow_track", key=k, s=took)
                 with self.plock:
-                    self.poses[k] = (time.time(), np.asarray(rep["pose"], float))
+                    self.poses[k] = (time.time(), np.asarray(rep["pose"], float), now)
         except Exception as e:  # noqa: BLE001 -- a lost frame; staleness is checked where poses are used
             self.event("track_error", error=str(e), s=time.time() - self.call_t0)
         finally:
@@ -189,8 +195,16 @@ class Executor(Node):
                 raise Stop("no /joint_states")
             return self.q.copy()
 
+    def joints_at(self, t):
+        """The joints nearest time t in the /joint_states history."""
+        with self.qlock:
+            if not self.q_hist:
+                raise Stop("no /joint_states")
+            return min(self.q_hist, key=lambda s: abs(s[0] - t))[1].copy()
+
     def pose(self, key):
-        """Latest tracked cam_T_obj (body frame), waiting for a fresh one. -> (pose, or None if never tracked; fresh)."""
+        """Latest tracked cam_T_obj (body frame), waiting for a fresh one. -> (pose, or None if never tracked; fresh;
+        when its frame arrived, or None)."""
         wait = STALE_WAIT if key in self.stale else TRACK_WAIT
         t0 = time.time()
         while True:
@@ -199,7 +213,7 @@ class Executor(Node):
             if p is not None and time.time() - p[0] < TRACK_MAX_AGE:
                 if key in self.stale:
                     self.event("recovered", key=key, s=time.time() - self.stale.pop(key))
-                return p[1], True
+                return p[1], True, p[2]
             if time.time() - t0 >= wait:
                 break
             time.sleep(0.05)
@@ -212,7 +226,7 @@ class Executor(Node):
                 call_running_s=None if call is None else time.time() - call,
                 frame_age_s=None if frame is None else time.time() - frame,
             )
-        return (None if p is None else p[1]), False
+        return (None, False, None) if p is None else (p[1], False, p[2])
 
     def _wait(self, fut, what):
         while not fut.done():
@@ -261,8 +275,9 @@ class Executor(Node):
             path.poses.append(ps)
         self.pub_ee.publish(path)
 
-    def send(self, Q, speed):
-        """Track joint path Q (Q[0] = where the robot is), timed as in timed(). Checks start and arrival."""
+    def start(self, Q, speed):
+        """Send joint path Q (Q[0] = where the robot is), timed as in timed(), without waiting for it. Checks the start.
+        -> (goal handle, result future, Q), or None when Q does not move."""
         q = self.joints()
         if np.abs(Q[0] - q).max() > START_TOL:
             raise Stop(
@@ -270,7 +285,7 @@ class Executor(Node):
             )
         msg = self.timed(Q, speed)
         if msg is None:
-            return
+            return None
         if not self.traj.wait_for_server(timeout_sec=5.0):
             raise Stop(
                 "FollowJointTrajectory server not available (UR driver up? --controller?)"
@@ -281,13 +296,39 @@ class Executor(Node):
         )
         if not gh.accepted:
             raise Stop("trajectory goal rejected")
+        return gh, gh.get_result_async(), Q
+
+    def cancel(self, motion):
+        """Cancel a running goal; False if the driver did not take it within CANCEL_WAIT."""
+        gh, result, _ = motion
+        if result.done():
+            return True
+        fut, t_end = gh.cancel_goal_async(), time.time() + CANCEL_WAIT
+        while not (fut.done() and result.done()) and time.time() < t_end:
+            time.sleep(0.01)
+        ok = fut.done() and result.done()
+        print("exec: trajectory cancel " + ("acknowledged" if ok else "NOT acknowledged -- use the e-stop"))
+        return ok
+
+    def stop(self, motion):
+        """Bring the arm to rest from a running goal, for a re-plan."""
+        if not self.cancel(motion):
+            raise Stop("trajectory cancel not acknowledged")
+        q, t_end = self.joints(), time.time() + CANCEL_WAIT
+        while time.time() < t_end:
+            time.sleep(0.05)
+            q, prev = self.joints(), q
+            if np.abs(q - prev).max() < SETTLE_TOL:
+                return
+        raise Stop("the arm kept moving after the cancel")
+
+    def finish(self, motion):
+        """Wait for a started goal; checks its result and the arrival. Ctrl-C cancels it."""
+        _, result, Q = motion
         try:
-            res = self._wait(gh.get_result_async(), "result").result
-        except KeyboardInterrupt:  # stop the arm before exiting: wait (2 s at most) for the driver to take the cancel
-            fut, t_end = gh.cancel_goal_async(), time.time() + 2.0
-            while not fut.done() and time.time() < t_end:
-                time.sleep(0.01)
-            print("exec: trajectory cancel " + ("acknowledged" if fut.done() else "NOT acknowledged -- use the e-stop"))
+            res = self._wait(result, "result").result
+        except KeyboardInterrupt:
+            self.cancel(motion)
             raise
         if res.error_code != 0:
             raise Stop(
@@ -297,6 +338,12 @@ class Executor(Node):
             raise Stop(
                 f"arrived {np.abs(self.joints() - Q[-1]).max():.3f} rad from the path end"
             )
+
+    def send(self, Q, speed):
+        """Run joint path Q to its end."""
+        motion = self.start(Q, speed)
+        if motion is not None:
+            self.finish(motion)
 
     def gripper(self, gap, effort):
         if not self.grip.wait_for_server(timeout_sec=5.0):
@@ -384,7 +431,7 @@ def run(node, a, log):
             if name == A and held:
                 return ee_cam() @ np.asarray(grasp["phi_grasp_T_obj"], float)
             return np.asarray(objects[name]["cam_T_can"], float)
-        body, fresh = node.pose(f"omni_m{objects[name]['mark']}")
+        body, fresh, t_frame = node.pose(f"omni_m{objects[name]['mark']}")
         carried = name == A and held
         if not fresh and carried:
             return ee_cam() @ seen.get("phi", np.asarray(grasp["phi_grasp_T_obj"], float))
@@ -393,17 +440,30 @@ def run(node, a, log):
         T = body.copy()
         T[:3, :3] = T[:3, :3] @ Rc[name]
         if carried:
-            seen["phi"] = np.linalg.inv(ee_cam()) @ T
+            # the joints when the frame arrived, not now: the arm has moved on while the frame was tracked
+            seen["phi"] = np.linalg.inv(C_B @ fk(node.joints_at(t_frame)) @ TG) @ T
         return T
 
     show = lambda Q: node.show(Q, [fk(q)[:3, 3] for q in Q], a.speed)
 
     timing = {}
 
-    def planned(what, goal, first, **kw):
+    def planned(what, goal, first, fallback=False, **kw):
         t0 = time.time()
         r = call("plan", q=list(node.joints()), goal=goal, **kw)
-        timing["plan_s"] = time.time() - t0  # sidecar + cuRobo round trip, before the gate
+        failures = r["goal_failures"]  # the IK solutions that could not be planned to, nearest first
+        for why in failures:
+            print(f"exec: {what}: {why}")
+        chose = r["path"] is None and fallback
+        if chose:  # same tool goal, but cuRobo chooses the joint angles
+            kw.pop("q_goal_ref")
+            kw.pop("alternatives")
+            r = call("plan", q=list(node.joints()), goal=goal, **kw)
+            what += ", to cuRobo's own IK solution, not the nearest: check the arm's motion"
+        elif failures:
+            what += f", to the IK solution {len(failures) + 1} by distance, not the nearest: check the arm's motion"
+        # sidecar + cuRobo round trips, before the gate
+        timing.update(plan_s=time.time() - t0, failures=failures, fallback=chose)
         if r["path"] is None:
             return None, r["reason"]
         Q = np.asarray(r["path"], float)
@@ -466,86 +526,130 @@ def run(node, a, log):
             T[:3, 3] -= abs(c["distance_m"]) * (T_p[:3, :3] @ c["passive_axis"])
         return T
 
-    T_t, T_plan, solving, path, k, first = None, np.eye(4), True, None, 0, True
-    T_start = ee_cam()  # O9's path cost is measured from the stage's start pose
-    log[ACT] = {"updates": [], "plans": []}
-    for it in range(200):
-        T_a, T_p, T_e = tracked(A), tracked(Pv), ee_cam()
-        if solving:
-            phi = np.linalg.inv(T_e) @ T_a
-            t0 = time.time()
-            r = call(
-                "targetpose",
-                depth=depth0,
-                K=K,
-                obstacle_exclude=exclude,
-                constraint=c,
-                phi=phi,
-                cam_T_ee_start=T_start,
-                cam_T_passive=T_p,
-                width=grasp["width"],
-                x0=T_t,
-                overlay=False,
-            )
-            T_t = np.asarray(r["cam_T_ee_target"], float)
-            solve_s = time.time() - t0
-            solving = np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
-            phi0 = phi if it == 0 else phi0
-            d_t, d_r = delta(T_t, T_plan)
-            moved = path is None or d_t > REPLAN_T or d_r > REPLAN_R
-            log[ACT]["updates"].append(
-                {
-                    "it": it,
-                    "ok": bool(r["ok"]),
-                    **{k_: float(v) for k_, v in r["terms"].items()},
-                    # what drives re-plans: the target's move from the current plan's target, and Phi's drift
-                    # from the stage's first measurement (cm, deg)
-                    "target_vs_plan": None if path is None else [d_t * 100, np.degrees(d_r)],
-                    "phi_vs_first": [x * f for x, f in zip(delta(phi, phi0), (100, np.degrees(1)))],
-                    "replan": bool(moved),
-                    "solve_s": solve_s,  # O9 re-solve on the sidecar, round trip
-                    "phi": phi.tolist(),
-                    "target": T_t.tolist(),
-                }
-            )
-            if moved:
-                ref = list(
-                    node.joints() if path is None else path[-1]
-                )  # stay on the previous plan's IK branch
-                T_body = T_a.copy()  # the mesh is in the body frame: canonical -> body
-                T_body[:3, :3] = T_a[:3, :3] @ Rc[A].T
-                carry = {
-                    "mesh_path": mesh,
-                    "tool0_T_obj": np.linalg.inv(fk(node.joints())) @ B_C @ T_body,
-                }
-                new, why = planned(
-                    f"{ACT} (update {it})",
-                    tool0(approach(T_t, T_p)),
-                    first,
-                    held=carry,
-                    q_goal_ref=ref,
+    T_t, T_plan, solving, path, motion = None, np.eye(4), True, None, None
+    T_start, t_stage, it = ee_cam(), time.time(), 0  # O9's path cost is measured from the stage's start pose
+    log[ACT] = {"updates": [], "plans": [], "stops": []}
+
+    def rest_of_path():
+        """From the current joints along `path`, past its nearest waypoint."""
+        q = node.joints()
+        j = int(np.argmin(np.abs(path - q).max(1)))
+        return np.vstack([q, path[min(j + 1, len(path) - 1) :]])
+
+    try:
+        while True:
+            if solving:
+                t0 = time.time()
+                _, T_p = tracked(A), tracked(Pv)
+                T_e = ee_cam()
+                phi = seen.get("phi", np.asarray(grasp["phi_grasp_T_obj"], float))
+                tracked_s = time.time() - t0
+                t0 = time.time()
+                r = call(
+                    "targetpose",
+                    depth=depth0,
+                    K=K,
+                    obstacle_exclude=exclude,
+                    constraint=c,
+                    phi=phi,
+                    cam_T_ee_start=T_start,
+                    cam_T_passive=T_p,
+                    width=grasp["width"],
+                    x0=T_t,
+                    overlay=False,
                 )
-                log[ACT]["plans"].append(
+                T_t = np.asarray(r["cam_T_ee_target"], float)
+                solve_s = time.time() - t0
+                solving = np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
+                phi0 = phi if it == 0 else phi0
+                d_t, d_r = delta(T_t, T_plan)
+                moved = path is None or d_t > REPLAN_T or d_r > REPLAN_R
+                log[ACT]["updates"].append(
                     {
                         "it": it,
-                        "success": new is not None,
-                        "reason": why,
-                        "plan_s": timing["plan_s"],
+                        "t": t0 - t_stage,  # s since the stage began, at this solve's start
+                        "moving": motion is not None and not motion[1].done(),
+                        "ok": bool(r["ok"]),
+                        **{k_: float(v) for k_, v in r["terms"].items()},
+                        # what drives re-plans: the target's move from the current plan's target, and Phi's drift
+                        # from the stage's first measurement (cm, deg)
+                        "target_vs_plan": None if path is None else [d_t * 100, np.degrees(d_r)],
+                        "phi_vs_first": [x * f for x, f in zip(delta(phi, phi0), (100, np.degrees(1)))],
+                        "replan": bool(moved),
+                        "tracked_s": tracked_s,  # poses and FK, sidecar round trips included
+                        "solve_s": solve_s,  # O9 re-solve on the sidecar, round trip
+                        "phi": phi.tolist(),
+                        "target": T_t.tolist(),
                     }
                 )
-                first = False
-                if (
-                    new is None and path is not None
-                ):  # e.g. inside the passive object's buffer near the end
-                    T_t, solving = T_plan, False
-                elif (path := new) is None:
-                    raise Stop(f"no plan at update {it}: {why}")
-                else:
-                    T_plan, k = T_t, 0
-        if k >= len(path) - 1:
-            break
-        node.send(path[k : k + CHUNK + 1], a.speed)
-        k += CHUNK
+                if moved:
+                    T_body = TG @ phi  # the mesh is in the body frame: canonical -> body
+                    T_body[:3, :3] = T_body[:3, :3] @ Rc[A].T
+                    carry = {"mesh_path": mesh, "tool0_T_obj": T_body}
+                    goal = tool0(approach(T_t, T_p))
+                    plan_log = lambda rec: log[ACT]["plans"].append({"it": it, **rec})
+                    if path is None:  # at rest, before the stage's first motion
+                        path, why = planned(
+                            f"{ACT} (update {it})",
+                            goal,
+                            True,
+                            alternatives=IK_ALTERNATIVES,
+                            fallback=True,
+                            held=carry,
+                            q_goal_ref=list(node.joints()),
+                        )
+                        plan_log(
+                            {
+                                "success": path is not None,
+                                "reason": why,
+                                "plan_s": timing["plan_s"],
+                                "failures": timing["failures"],
+                                "fallback": timing["fallback"],
+                            }
+                        )
+                        if path is None:
+                            raise Stop(f"no plan at update {it}: {why}")
+                        T_plan = T_t
+                        motion = node.start(path, a.speed)
+                    else:
+                        ref = list(path[-1])  # stay on the previous plan's IK branch
+                        # first from where the arm is now, still moving: if this fails the arm is not interrupted
+                        t0 = time.time()
+                        trial = call("plan", q=list(node.joints()), goal=goal, held=carry, q_goal_ref=ref)
+                        plan_log(
+                            {
+                                "moving": True,
+                                "success": trial["path"] is not None,
+                                "reason": trial["reason"],
+                                "plan_s": time.time() - t0,
+                            }
+                        )
+                        if trial["path"] is None:  # e.g. inside the passive object's buffer near the end
+                            T_t, solving = T_plan, False
+                        else:
+                            t_stop = time.time()
+                            node.stop(motion)
+                            new, why = planned(f"{ACT} (update {it})", goal, False, held=carry, q_goal_ref=ref)
+                            plan_log({"moving": False, "success": new is not None, "reason": why, "plan_s": timing["plan_s"]})
+                            if new is None:
+                                T_t, solving = T_plan, False
+                                motion = node.start(rest_of_path(), a.speed)
+                            else:
+                                path, T_plan = new, T_t
+                                motion = node.start(path, a.speed)
+                            log[ACT]["stops"].append({"it": it, "s": time.time() - t_stop})
+            if motion is None:
+                break
+            if motion[1].done():
+                node.finish(motion)
+                break
+            if not solving:
+                time.sleep(0.02)
+            it += 1
+    except BaseException:  # Ctrl-C, a refused gate, a sidecar error: the arm must not run on
+        if motion is not None:
+            node.cancel(motion)
+        raise
     if ACT == "place":  # straight to the target, release (supp. A.4 (b))
         straight("place", tool0(T_t))
         gate(a, "open the gripper (release)")
@@ -617,7 +721,7 @@ def main():
         )
         print("exec:", log["status"])
         ex.shutdown()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 if __name__ == "__main__":
