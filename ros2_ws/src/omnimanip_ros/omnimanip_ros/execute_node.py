@@ -560,16 +560,17 @@ def run(node, a, log):
                 )
                 T_t = np.asarray(r["cam_T_ee_target"], float)
                 solve_s = time.time() - t0
-                solving = np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
+                accepted = bool(r["accepted"])
+                solving = not accepted or np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
                 phi0 = phi if it == 0 else phi0
                 d_t, d_r = delta(T_t, T_plan)
-                moved = path is None or d_t > REPLAN_T or d_r > REPLAN_R
+                moved = accepted and (path is None or d_t > REPLAN_T or d_r > REPLAN_R)
                 log[ACT]["updates"].append(
                     {
                         "it": it,
                         "t": t0 - t_stage,  # s since the stage began, at this solve's start
                         "moving": motion is not None and not motion[1].done(),
-                        "ok": bool(r["ok"]),
+                        "ok": accepted,
                         **{k_: float(v) for k_, v in r["terms"].items()},
                         # what drives re-plans: the target's move from the current plan's target, and Phi's drift
                         # from the stage's first measurement (cm, deg)
@@ -579,9 +580,16 @@ def run(node, a, log):
                         "tracked_s": tracked_s,  # poses and FK, sidecar round trips included
                         "solve_s": solve_s,  # O9 re-solve on the sidecar, round trip
                         "phi": phi.tolist(),
+                        "cam_T_passive": T_p.tolist(),
                         "target": T_t.tolist(),
                     }
                 )
+                if not accepted:  # O9 report failure: never move to it; a running path carries on
+                    rho = float(r["terms"]["constraint"])
+                    print(f"exec: update {it}: O9 solve rejected, rho {rho:.3f}")
+                    if path is None:
+                        raise Stop(f"O9 rejected the first solve (rho {rho:.3f}); see the last update in exec.json")
+                    T_t = T_plan
                 if moved:
                     T_body = TG @ phi  # the mesh is in the body frame: canonical -> body
                     T_body[:3, :3] = T_body[:3, :3] @ Rc[A].T

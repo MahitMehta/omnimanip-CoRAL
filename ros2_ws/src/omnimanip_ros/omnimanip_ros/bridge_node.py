@@ -278,7 +278,7 @@ class Bridge(Node):
             depth_grasp=req.grasp_depth,
         )
         t = r["terms"]
-        res.ok = bool(r["ok"])
+        res.ok = bool(r["accepted"])
         res.cam_t_ee_target = conv.pose_of(r["cam_T_ee_target"])
         res.cam_t_active_target = conv.pose_of(r["cam_T_active_target"])
         res.constraint_loss, res.collision_loss, res.path_loss = (

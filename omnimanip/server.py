@@ -279,7 +279,7 @@ def targetpose(r):
         c, phi, T_ee0, T_p, obst, r["width"], None if x0 is None else np.asarray(x0)
     )
     out = {
-        "ok": ok,
+        "accepted": ok,  # rho within tolerance; not "ok", which is the reply envelope's success flag
         "cam_T_ee_target": T_ee,
         "cam_T_active_target": T_ee @ phi,
         "terms": terms,
