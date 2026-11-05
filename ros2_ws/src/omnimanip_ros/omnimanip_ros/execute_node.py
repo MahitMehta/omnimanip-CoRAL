@@ -72,7 +72,7 @@ LIFT = 0.10  # m straight up after closing (DEVIATIONS #33)
 RESOLVE_STOP = 0.02  # m (O10)
 REPLAN_T, REPLAN_R = 0.02, np.radians(5)
 IK_ALTERNATIVES = 5  # distinct IK solutions the stage's first plan tries, nearest first, before cuRobo chooses one
-MASK_GROW = 5  # px at 480 rows: held object's mask grown before it leaves the map
+MASK_GROW = 10  # px at 480 rows: held object's mask grown before it leaves the map (depth bleeds past its edge)
 DWELL_S = 2.0  # held at the pour pose
 OPEN_GAP, CLOSE_GAP = (
     0.085,
