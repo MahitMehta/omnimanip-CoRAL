@@ -23,7 +23,8 @@ follow, or for dry runs on the UR driver's mock hardware and gripper-control's m
 Every motion stops at a gate first (Enter = go, anything else = stop; --gate first: only the first move of each
 phase), its path latched just before on /omnimanip/trajectory and its tool0 positions on /omnimanip/ee_path
 (nav_msgs/Path, base_link) for RViz. Ctrl-C during a motion cancels the trajectory goal; the e-stop stays with
-the operator. Writes <run>/exec.json.
+the operator. Writes <run>/exec.json, and records camera2's colour stream for the whole session to
+<run>/videos/exec_<start time>_camera2.mp4 (a new file per execute; none when camera2 isn't publishing).
 
     ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--controller scaled_joint_trajectory_controller]
 """
@@ -53,7 +54,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from scipy.spatial.transform import Rotation
-from sensor_msgs.msg import CameraInfo, Image, JointState
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 from std_msgs.msg import Header
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -82,9 +83,48 @@ VMAX = np.pi  # rad/s and rad/s^2 per UR5e joint at --speed 1
 START_TOL, ARRIVE_TOL = 0.01, 0.01  # rad
 TRACK_MAX_AGE = 1.0  # s: an older tracked pose is not used
 TRACK_WAIT, STALE_WAIT = 5.0, 0.2  # s: wait for a fresh pose; the same once that object is known to be stale
+REC_TOPIC, REC_FPS = "/camera/camera2/color/image_raw/compressed", 30  # session video: the second camera, JPEG frames
 TRACK_SLOW = 1.0  # s: a longer gap between synced frames, or track call, is logged
 JOINT_HISTORY = 2000  # /joint_states samples kept, to pair a tracked pose with the joints at its frame's arrival
 CANCEL_WAIT, SETTLE_TOL = 2.0, 1e-3  # s for the driver to take a cancel, and then for the arm to stop; rad per 50 ms
+
+
+class Recorder:
+    """REC_TOPIC to an mp4 at a fixed REC_FPS by message time: a frame is repeated across a gap (up to 1 s), so the
+    video plays at real speed. The file is opened on the first frame."""
+
+    def __init__(self, node, path):
+        self.node, self.path, self.w, self.t0, self.n, self.lock = node, path, None, None, 0, threading.Lock()
+        self.closed = False
+        self.sub = node.create_subscription(
+            CompressedImage, REC_TOPIC, self._on, qos_profile_sensor_data, callback_group=MutuallyExclusiveCallbackGroup()
+        )
+
+    def _on(self, msg):
+        im = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)  # BGR, as VideoWriter wants
+        if im is None:
+            return
+        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        with self.lock:
+            if self.closed:  # a frame after close() would reopen and truncate the finished file
+                return
+            if self.w is None:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.w = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), REC_FPS, (im.shape[1], im.shape[0]))
+                self.t0 = t
+            for _ in range(min(int((t - self.t0) * REC_FPS) + 1 - self.n, REC_FPS)):
+                self.w.write(im)
+                self.n += 1
+
+    def close(self):
+        """-> the video's path, or None if no frame came."""
+        with self.lock:
+            self.closed = True
+            self.node.destroy_subscription(self.sub)
+            if self.w is None:
+                return None
+            self.w.release()
+            return self.path
 
 
 class Stop(Exception):
@@ -720,6 +760,10 @@ def main():
     node = Executor(keys, a.controller)
     ex = MultiThreadedExecutor()
     ex.add_node(node)
+    video = Path(a.run) / "videos" / f"exec_{time.strftime('%Y%m%d_%H%M%S')}_camera2.mp4"
+    while video.exists():  # two executes in the same second
+        video = video.with_name(video.stem + "_1.mp4")
+    rec = Recorder(node, video)
     threading.Thread(target=ex.spin, daemon=True).start()
     log = {"args": vars(a), "status": "error (see the traceback)", "grasp": {}}
     try:
@@ -731,6 +775,7 @@ def main():
         log["status"] = "interrupted"
     finally:
         log["track_events"] = node.events
+        log["video"] = rec.close()
         (Path(a.run) / "exec.json").write_text(
             json.dumps(
                 log,
