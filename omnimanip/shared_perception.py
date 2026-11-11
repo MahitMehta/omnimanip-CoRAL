@@ -479,7 +479,7 @@ def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=No
 
 def _generate(k, rgb, dc, K, m8, out_dir, laps, low_res=False):
     """TRELLIS.2 canonical GLB -> Any6D metric mesh. -> (trellis2 reply, any6d reply)."""
-    t2 = cli("trellis2_low_res" if low_res else "trellis2", 400).call(
+    t2 = cli("trellis2_low_res" if low_res else "trellis2", 600).call(  # s: a lid took ~390 s, past the old 400 once queued
         {
             "op": "generate",
             "rgb": rgb,
