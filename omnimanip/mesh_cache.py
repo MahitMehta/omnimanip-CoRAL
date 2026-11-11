@@ -56,6 +56,13 @@ def mesh_size(V, cam_T_obj, plane):
     return float(h.max() - h.min()), _footprint(P, plane)
 
 
+def extents(V):
+    """The mesh's three oriented-bounding-box side lengths (m), longest first: its height in any resting pose."""
+    import trimesh
+
+    return sorted(trimesh.bounds.oriented_bounds(np.asarray(V, float))[1].tolist(), reverse=True)
+
+
 def entry(name):
     d = CACHE_DIR / name
     return d if (d / "meta.json").exists() and all((d / f).exists() for f in FILES) else None
@@ -67,9 +74,15 @@ def lookup(name, depth, K, mask, plane):
     if d is None:
         return None, f"no cached mesh for {name!r}"
     m = json.loads((d / "meta.json").read_text())
+    if "extents_m" not in m:  # entries saved before extents were recorded
+        from . import shared_perception as S
+
+        m["extents_m"] = extents(S.read_obj(d / "mesh.obj")[0])
+        (d / "meta.json").write_text(json.dumps(m, indent=1))
     h, _ = observed_size(depth, K, mask, plane)  # not the footprint: it read 5-6 cm too wide from a side camera (2026-11-02)
-    if abs(h - m["height_m"]) > SIZE_TOL:
-        return None, f"{name!r} looks different from the cached one: {100 * h:.1f} cm tall (cached {100 * m['height_m']:.1f})"
+    if min(abs(h - e) for e in m["extents_m"]) > SIZE_TOL:  # any resting pose: lying, standing or on its side
+        cached = " / ".join(f"{100 * e:.1f}" for e in m["extents_m"])
+        return None, f"{name!r} looks different from the cached one: {100 * h:.1f} cm tall (cached {cached})"
     return d, f"cached mesh of {name!r} from {m['source_run']}"
 
 
@@ -97,7 +110,7 @@ def save(name, mesh_obj, cam_T_obj, plane, source_run):
     shutil.copy(src, d / "mesh.obj")  # its mtllib is material.mtl, whose map_Kd is material_0.png
     for f_ in ("material.mtl", "material_0.png"):
         shutil.copy(src.parent / f_, d / f_)
-    meta = {"name": name, "source_run": str(source_run), "height_m": h, "footprint_m": f, "id": int(time.time())}
+    meta = {"name": name, "source_run": str(source_run), "height_m": h, "footprint_m": f, "extents_m": extents(V), "id": int(time.time())}
     (d / "meta.json").write_text(json.dumps(meta, indent=1))
     return meta
 
