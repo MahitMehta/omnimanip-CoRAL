@@ -24,7 +24,7 @@ Every motion stops at a gate first (Enter = go, anything else = stop; --gate fir
 phase), its path latched just before on /omnimanip/trajectory and its tool0 positions on /omnimanip/ee_path
 (nav_msgs/Path, base_link) for RViz. Ctrl-C during a motion cancels the trajectory goal; the e-stop stays with
 the operator. Writes <run>/exec.json, and records camera2's colour stream for the whole session to
-<run>/videos/exec_<start time>_camera2.mp4 (a new file per execute; none when camera2 isn't publishing).
+<run>/videos/exec_<start time>_camera2.webm (VP8; a new file per execute; none when camera2 isn't publishing).
 
     ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--controller scaled_joint_trajectory_controller]
 """
@@ -90,8 +90,9 @@ CANCEL_WAIT, SETTLE_TOL = 2.0, 1e-3  # s for the driver to take a cancel, and th
 
 
 class Recorder:
-    """REC_TOPIC to an mp4 at a fixed REC_FPS by message time: a frame is repeated across a gap (up to 1 s), so the
-    video plays at real speed. The file is opened on the first frame."""
+    """REC_TOPIC to a VP8 webm (plays in VS Code and browsers; mp4v didn't, and this OpenCV has no H.264) at a fixed
+    REC_FPS by message time: a frame is repeated across a gap (up to 1 s), so the video plays at real speed. The file is
+    opened on the first frame."""
 
     def __init__(self, node, path):
         self.node, self.path, self.w, self.t0, self.n, self.lock = node, path, None, None, 0, threading.Lock()
@@ -110,7 +111,7 @@ class Recorder:
                 return
             if self.w is None:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
-                self.w = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), REC_FPS, (im.shape[1], im.shape[0]))
+                self.w = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"VP80"), REC_FPS, (im.shape[1], im.shape[0]))
                 self.t0 = t
             for _ in range(min(int((t - self.t0) * REC_FPS) + 1 - self.n, REC_FPS)):
                 self.w.write(im)
@@ -760,9 +761,9 @@ def main():
     node = Executor(keys, a.controller)
     ex = MultiThreadedExecutor()
     ex.add_node(node)
-    video = Path(a.run) / "videos" / f"exec_{time.strftime('%Y%m%d_%H%M%S')}_camera2.mp4"
+    video = Path(a.run) / "videos" / f"exec_{time.strftime('%Y%m%d_%H%M%S')}_camera2.webm"
     while video.exists():  # two executes in the same second
-        video = video.with_name(video.stem + "_1.mp4")
+        video = video.with_name(video.stem + "_1.webm")
     rec = Recorder(node, video)
     threading.Thread(target=ex.spin, daemon=True).start()
     log = {"args": vars(a), "status": "error (see the traceback)", "grasp": {}}
