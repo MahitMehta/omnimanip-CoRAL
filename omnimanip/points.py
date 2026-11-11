@@ -6,6 +6,7 @@ several dots (only those on the object are drawn) for the grasp heatmap. All poi
 """
 
 import threading
+from functools import lru_cache
 
 import numpy as np
 import trimesh
@@ -229,10 +230,20 @@ def grasp_points(rgb, depth, K, mask, cam_T_can, V_can, **fields):
     return {"points": np.array(pts), "dots": sel, "vlm": rep, "images": [g]}
 
 
+_LOAD_LOCK = threading.Lock()  # one load at a time: five concurrent loads of a 60 MB OBJ took 80 s each, one 4 s
+
+
+@lru_cache(maxsize=4)  # the run's objects: points, directions, RRC and target pose all load the same meshes
+def _load(path):
+    m = trimesh.load(path, force="mesh", process=False)
+    assert isinstance(m, trimesh.Trimesh)
+    return m
+
+
 def textured_canonical_mesh(final_mesh_path, R):
     """Any6D's textured final mesh rotated into the canonical frame (V_c = V @ R)."""
-    m = trimesh.load(final_mesh_path, force="mesh", process=False)
-    assert isinstance(m, trimesh.Trimesh)
+    with _LOAD_LOCK:
+        m = _load(final_mesh_path).copy()
     m.vertices = np.asarray(m.vertices) @ np.asarray(R)
     return m
 
