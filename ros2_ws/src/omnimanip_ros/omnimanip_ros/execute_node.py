@@ -4,7 +4,8 @@ O10) for a run_task run: the hardware counterpart of sim/execute.py, same primit
   grasp  cuRobo move to 8 cm in front of the grasp pose (12 / 16 cm if refused), straight in, close, straight
          10 cm up (DEVIATIONS #33)
   pour   cuRobo move to the O9 target pose carrying the object; hold
-  place  cuRobo move to v = |d| in front of the target along the passive axis, straight to the target, open
+  place  cuRobo move to max(v, 4 cm) in front of the target along the passive axis (v = |d|), straight to the target,
+         open
   The planned path goes to the controller as one goal, and the target is re-solved on every tracker update while the
   arm moves (Phi re-measured from the tracked active pose and the joints at its frame's arrival) until the EE is within
   2 cm of it. When the target moves 2 cm / 5 deg from the plan's, a replan is tried without stopping; if it can be
@@ -69,6 +70,8 @@ UR_JOINTS = [
 OMNI_ADDR = os.environ.get("OMNIMANIP_ADDR", "tcp://127.0.0.1:5690")
 POSE_ADDR = os.environ.get("POSE_ADDR", "tcp://127.0.0.1:5667")
 PRE_GRASP = (0.08, 0.12, 0.16)  # m; as sim/execute.py
+PRE_PLACE = 0.04  # m: place's planned move ends at least this far before the target; cuRobo's margins refused a
+# marker 1.6 cm into a cup at v = 0 (run 20261111_221720); the straight move in isn't collision-checked
 LIFT = 0.10  # m straight up after closing (DEVIATIONS #33)
 RESOLVE_STOP = 0.02  # m (O10)
 REPLAN_T, REPLAN_R = 0.02, np.radians(5)
@@ -572,7 +575,7 @@ def run(node, a, log):
     def approach(T_t, T_p):
         T = T_t.copy()
         if ACT == "place":
-            T[:3, 3] -= abs(c["distance_m"]) * (T_p[:3, :3] @ c["passive_axis"])
+            T[:3, 3] -= max(abs(c["distance_m"]), PRE_PLACE) * (T_p[:3, :3] @ c["passive_axis"])
         return T
 
     T_t, T_plan, solving, path, motion = None, np.eye(4), True, None, None
