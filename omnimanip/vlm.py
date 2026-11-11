@@ -31,7 +31,7 @@ def query(name, images=(), model=VLM_MODEL, **fields):
     r = litellm.completion(
         model=model,
         messages=[{"role": "user", "content": content}],
-        **({"reasoning_effort": VLM_REASONING[name]} if name in VLM_REASONING else {}),
+        reasoning_effort=VLM_REASONING,
         response_format={
             "type": "json_schema",
             "json_schema": {"name": name, "schema": schema, "strict": True},

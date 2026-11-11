@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
 
 VLM_MODEL = os.getenv(
-    "VLM_MODEL", "gemini/gemini-3.8-flash"
+    "VLM_MODEL", "gemini/gemini-3.7-flash"
 )  # any litellm model id; key read from .env by litellm
-VLM_REASONING = {}  # litellm reasoning_effort per prompt; other prompts: the provider default
+VLM_REASONING = "minimal"  # litellm reasoning_effort for every prompt
 HOST = os.getenv(
     "HOST", "100.89.37.109"
 )  # the GPU box running every sidecar (CoRAL, or the isaac workstation)
