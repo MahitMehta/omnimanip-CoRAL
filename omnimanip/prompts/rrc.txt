@@ -9,7 +9,7 @@ Look at the rendered {active} itself, its orientation and position, and judge wh
 
 Judge whether this interaction would accomplish the stage:
 - "success": the pose and direction are right for the task (feasible without collision).
-- "refine": roughly right (the right part of the {active} faces the {passive} in about the right way), but the direction is somewhat off, for example the object is tilted too far or not far enough, and a nearby direction would be better.
+- "refine": roughly right (the right part of the {active} faces the {passive} in about the right way), but the direction is somewhat off, for example the object is tilted too far or not far enough, and a nearby direction would be better. Refining replaces the remaining candidates with {refine_n} new directions spaced evenly on a {refine_deg:g}° cone around this arrow (each tilted {refine_deg:g}° from it), which are then checked one by one.
 - "failure": the direction is wrong for the task (for example the wrong part faces the {passive}, or the object is upside down), so no nearby direction would fix it.
 Also give "interaction_value": the signed distance in cm from the {passive}'s interaction point to where the {active}'s interaction point should be, along the {passive}'s interaction axis (negative = against that axis; 0 = at the point). Choose the distance the stage needs so that the {active} clears the {passive}: for example, when pouring into or placing onto something from above, the {active}'s interaction point should stay above the {passive}'s, which is a negative value when the {passive}'s axis points down into it.
 

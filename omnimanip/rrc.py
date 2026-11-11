@@ -76,7 +76,14 @@ def plan(K_list, bg, K, mesh_a, T_a, mesh_p, T_p, fields, M=6):
     while k < len(todo):
         c = todo[k]
         img, _ = interaction_image(c, bg, K, mesh_a, T_a, mesh_p, T_p)
-        rep = vlm.query("rrc", [img], constraint=C.describe(c), **fields)
+        rep = vlm.query(
+            "rrc",
+            [img],
+            constraint=C.describe(c),
+            refine_n=M,
+            refine_deg=C.REFINE_DEG,
+            **fields,
+        )
         trace.append(
             {
                 "rank": c["rank"],

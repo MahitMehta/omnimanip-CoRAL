@@ -68,7 +68,10 @@ def solve_active_pose(c, T_active, T_passive):
     return T
 
 
-def resample(c, n=6, half_angle_deg=35.0):
+REFINE_DEG = 35.0  # RRC refine cone half-angle (DEVIATIONS row 25)
+
+
+def resample(c, n=6, half_angle_deg=REFINE_DEG):
     """RRC refinement (Alg. 1): n active directions uniformly around C's active axis on a cone (6 at 35 deg;
     the paper gives no angle, the onboarding notes' example is 20). -> n constraints differing only in the active axis."""
     v = c["active_axis"] / np.linalg.norm(c["active_axis"])
