@@ -24,8 +24,8 @@ follow, or for dry runs on the UR driver's mock hardware and gripper-control's m
 Every motion stops at a gate first (Enter = go, anything else = stop; --gate first: only the first move of each
 phase), its path latched just before on /omnimanip/trajectory and its tool0 positions on /omnimanip/ee_path
 (nav_msgs/Path, base_link) for RViz. Ctrl-C during a motion cancels the trajectory goal; the e-stop stays with
-the operator. Writes <run>/exec.json (with every joint path sent, as motions), and records camera2's colour stream for the whole session plus 3 s to
-<run>/videos/exec_<start time>_camera2.webm (VP8; a new file per execute; none when camera2 isn't publishing).
+the operator. Writes <run>/exec.json (with every joint path sent, as motions), and records camera 1's (the planning camera's) colour stream for the whole session plus 3 s
+to <run>/videos/exec_<start time>_camera1.webm (VP8; a new file per execute; none when it isn't publishing).
 
     ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--controller scaled_joint_trajectory_controller]
 """
@@ -92,9 +92,9 @@ TRACK_WAIT, STALE_WAIT = (
     0.2,
 )  # s: wait for a fresh pose; the same once that object is known to be stale
 REC_TOPIC, REC_FPS = (
-    "/camera/camera2/color/image_raw/compressed",
+    RGB_TOPIC + "/compressed",
     30,
-)  # session video: the second camera, JPEG frames
+)  # session video: the planning camera (camera 1), JPEG frames
 REC_TAIL = 3.0  # s recorded after the session ends: gripper-control's result can return before the fingers move
 TRACK_SLOW = 1.0  # s: a longer gap between synced frames, or track call, is logged
 JOINT_HISTORY = 2000  # /joint_states samples kept, to pair a tracked pose with the joints at its frame's arrival
@@ -893,7 +893,7 @@ def main():
     ex = MultiThreadedExecutor()
     ex.add_node(node)
     video = (
-        Path(a.run) / "videos" / f"exec_{time.strftime('%Y%m%d_%H%M%S')}_camera2.webm"
+        Path(a.run) / "videos" / f"exec_{time.strftime('%Y%m%d_%H%M%S')}_camera1.webm"
     )
     while video.exists():  # two executes in the same second
         video = video.with_name(video.stem + "_1.webm")
