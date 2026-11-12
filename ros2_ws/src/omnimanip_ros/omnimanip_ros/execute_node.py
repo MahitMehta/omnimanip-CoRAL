@@ -70,6 +70,8 @@ UR_JOINTS = [
 OMNI_ADDR = os.environ.get("OMNIMANIP_ADDR", "tcp://127.0.0.1:5690")
 POSE_ADDR = os.environ.get("POSE_ADDR", "tcp://127.0.0.1:5667")
 PRE_GRASP = (0.08, 0.12, 0.16)  # m; as sim/execute.py
+APPROACH_RETRY = 0.04  # m: when the straight approach is refused (a joint jump near the wrist singularity, run
+# 20261112_033826), a planned move to this pre-grasp, then straight in from there
 PRE_PLACE = 0.04  # m: place's planned move ends at least this far before the target; cuRobo's margins refused a
 # marker 1.6 cm into a cup at v = 0 (run 20261111_221720); the straight move in isn't collision-checked
 LIFT = 0.10  # m straight up after closing (DEVIATIONS #33)
@@ -613,6 +615,20 @@ def run(node, a, log):
         raise Stop(f"no plan to the pre-grasp: {why}")
     log["grasp"]["pre_grasp_m"] = pre
     node.send(path, a.speed)
+    why = call("line", q=list(node.joints()), goal=tool0(T_g))["reason"]
+    if why and pre > APPROACH_RETRY:
+        log["grasp"]["approach_refused"] = {"pre_grasp_m": pre, "reason": why}
+        T_pre[:3, 3] = T_g[:3, 3] - APPROACH_RETRY * T_g[:3, 0]
+        path, why = planned(
+            f"pre-grasp {APPROACH_RETRY * 100:.0f} cm (approach from {pre * 100:.0f} cm refused: {why})",
+            tool0(T_pre),
+            False,
+            q_goal_ref=list(node.joints()),
+        )
+        if path is None:
+            raise Stop(f"no plan to the {APPROACH_RETRY * 100:.0f} cm pre-grasp: {why}")
+        log["grasp"]["pre_grasp_m"] = APPROACH_RETRY
+        node.send(path, a.speed)
     straight("approach", tool0(T_g))
     gate(a, "close the gripper")
     log["grasp"]["close"] = node.gripper(CLOSE_GAP, a.effort)
