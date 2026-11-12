@@ -34,6 +34,10 @@ to <run>/videos/exec_<start time>_camera1.webm (VP8; a new file per execute; non
 import argparse
 import json
 import os
+import queue
+import signal
+import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -52,7 +56,7 @@ from nav_msgs.msg import Path as NavPath
 from rclpy.action import ActionClient
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.duration import Duration
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from scipy.spatial.transform import Rotation
@@ -96,6 +100,9 @@ REC_TOPIC, REC_FPS = (
     RGB_TOPIC + "/compressed",
     30,
 )  # session video: the planning camera (camera 1), JPEG frames
+REC_FINISH = (
+    300  # s allowed for the recorder to encode its queued frames after the session
+)
 REC_TAIL = 3.0  # s recorded after the session ends: gripper-control's result can return before the fingers move
 TRACK_SLOW = 1.0  # s: a longer gap between synced frames, or track call, is logged
 # s: /joint_states logged to exec.json's joints at this spacing, to match video frames to arm poses
@@ -110,19 +117,15 @@ CANCEL_WAIT, SETTLE_TOL = (
 class Recorder:
     """REC_TOPIC to a VP8 webm (plays in VS Code and browsers; mp4v didn't, and this OpenCV has no H.264) at a fixed
     REC_FPS by message time: a frame is repeated across a gap (up to 1 s), so the video plays at real speed. The file is
-    opened on the first frame."""
+    opened on the first frame. Frames are queued and encoded on a thread: VP8 takes ~35 ms a frame here, so encoding
+    in the callback dropped most of the best-effort topic's frames; close() finishes the queue."""
 
     def __init__(self, node, path):
-        self.node, self.path, self.w, self.t0, self.n, self.lock = (
-            node,
-            path,
-            None,
-            None,
-            0,
-            threading.Lock(),
-        )
+        self.node, self.path, self.w, self.t0, self.n = node, path, None, None, 0
         self.t0_local = None  # local clock at the first frame (t0 is the camera's stamp: another machine's clock)
-        self.closed = False
+        self.q, self.closed = queue.Queue(), False
+        self.writer = threading.Thread(target=self._write, daemon=True)
+        self.writer.start()
         self.sub = node.create_subscription(
             CompressedImage,
             REC_TOPIC,
@@ -132,17 +135,22 @@ class Recorder:
         )
 
     def _on(self, msg):
-        im = cv2.imdecode(
-            np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR
-        )  # BGR, as VideoWriter wants
-        if im is None:
+        if self.closed:
             return
-        t = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        with self.lock:
-            if (
-                self.closed
-            ):  # a frame after close() would reopen and truncate the finished file
-                return
+        if self.t0_local is None:
+            self.t0_local = time.time()
+        self.q.put(
+            (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, bytes(msg.data))
+        )
+
+    def _write(self):
+        while (item := self.q.get()) is not None:
+            t, data = item
+            im = cv2.imdecode(
+                np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR
+            )  # BGR, as VideoWriter wants
+            if im is None:
+                continue
             if self.w is None:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 self.w = cv2.VideoWriter(
@@ -151,20 +159,21 @@ class Recorder:
                     REC_FPS,
                     (im.shape[1], im.shape[0]),
                 )
-                self.t0, self.t0_local = t, time.time()
+                self.t0 = t
             for _ in range(min(int((t - self.t0) * REC_FPS) + 1 - self.n, REC_FPS)):
                 self.w.write(im)
                 self.n += 1
 
     def close(self):
-        """-> the video's path, or None if no frame came."""
-        with self.lock:
-            self.closed = True
-            self.node.destroy_subscription(self.sub)
-            if self.w is None:
-                return None
-            self.w.release()
-            return self.path
+        """Encodes what is queued. -> the video's path, or None if no frame came."""
+        self.closed = True
+        self.node.destroy_subscription(self.sub)
+        self.q.put(None)
+        self.writer.join()
+        if self.w is None:
+            return None
+        self.w.release()
+        return self.path
 
 
 class Stop(Exception):
@@ -907,7 +916,12 @@ def main():
     )
     while video.exists():  # two executes in the same second
         video = video.with_name(video.stem + "_1.webm")
-    rec = Recorder(node, video)
+    # its own process: in this one, /joint_states' ~500 callbacks/s left the recorder 3-7 of the camera's 30 frames/s
+    # (best-effort topic, short queue); its own session, so a Ctrl-C here doesn't cut the tail
+    rec = subprocess.Popen(
+        [sys.executable, "-m", "omnimanip_ros.execute_node", "--record", str(video)],
+        start_new_session=True,
+    )
     threading.Thread(target=ex.spin, daemon=True).start()
     log = {"args": vars(a), "status": "error (see the traceback)", "grasp": {}}
     try:
@@ -921,13 +935,25 @@ def main():
         log["track_events"] = node.events
         log["motions"] = node.sent
         time.sleep(REC_TAIL)
-        log["video"] = rec.close()
+        rec.terminate()  # it then encodes what it has queued
+        try:
+            rec.wait(timeout=REC_FINISH)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+        t0 = video.with_suffix(".t0.json")
+        vt = json.loads(t0.read_text()) if t0.exists() else {}
+        t0.unlink(missing_ok=True)
+        log["video"] = vt.get("video")
         log["joints"] = {
             "t": [t for t, _ in node.q_log],
             "q": [q for _, q in node.q_log],
         }  # local receive time, UR order
         # video frame k is at t0_stamp + k / fps on the camera's clock; t0_local is when frame 0 arrived here
-        log["video_t0"] = {"stamp": rec.t0, "local": rec.t0_local, "fps": REC_FPS}
+        log["video_t0"] = {
+            "stamp": vt.get("stamp"),
+            "local": vt.get("local"),
+            "fps": REC_FPS,
+        }
         (Path(a.run) / "exec.json").write_text(
             json.dumps(
                 log,
@@ -940,5 +966,26 @@ def main():
         rclpy.try_shutdown()
 
 
+def record(video):
+    """The recorder's process (main starts it): REC_TOPIC to `video` until SIGTERM, or until main's process is gone;
+    then <video>.t0.json with the first frame's times for main's exec.json."""
+    rclpy.init()
+    node = Node("omnimanip_execute_recorder")
+    rec, stop, parent = Recorder(node, Path(video)), threading.Event(), os.getppid()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    ex = SingleThreadedExecutor()
+    ex.add_node(node)
+    while not stop.is_set() and os.getppid() == parent:
+        ex.spin_once(timeout_sec=0.1)
+    out = rec.close()
+    Path(video).with_suffix(".t0.json").write_text(
+        json.dumps({"video": out and str(out), "stamp": rec.t0, "local": rec.t0_local})
+    )
+    rclpy.try_shutdown()
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:2] == ["--record"]:
+        record(sys.argv[2])
+    else:
+        main()
