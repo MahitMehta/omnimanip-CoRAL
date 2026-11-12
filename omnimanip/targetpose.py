@@ -20,7 +20,6 @@ from .gripper import GRIPPER
 from .shared_perception import read_obj
 
 D_MIN, LAMBDA_T, LAMBDA_R = 0.02, 1.0, 0.1  # m; 1/m; 1/rad (onboarding notes O9)
-D_MIN_HELD_PASSIVE = 0.0  # m: the constraint brings them into contact (place at d = 0), so only overlap counts
 RHO_TOL = 0.05  # accept the solve if rho <= this: ~18 deg of misalignment at 0 mm, or 5 mm at 0 deg
 VOXEL = 0.005  # m: obstacle cloud downsampling
 
@@ -97,7 +96,7 @@ def losses(T_ee, T_ee0, c, phi, T_passive, tree, width, held, passive):
         "collision_gripper": _hinge(tree, np.eye(4), g, D_MIN)
         + _hinge(passive, P_inv, g, D_MIN),
         "collision_held": _hinge(tree, np.eye(4), h, D_MIN)
-        + _hinge(passive, P_inv, h, D_MIN_HELD_PASSIVE),
+        + _hinge(passive, P_inv, h, D_MIN),
         "path": float(
             LAMBDA_T * np.linalg.norm(T_ee[:3, 3] - T_ee0[:3, 3]) + LAMBDA_R * drot
         ),
