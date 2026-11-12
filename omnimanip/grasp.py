@@ -19,6 +19,9 @@ MARGIN, CONTEXT = (
     0.03,
     0.15,
 )  # m: lims box around the object; table context sent for collision checking
+# m: masked depth this far from the mask's median depth is background seen past the object's edge, left out of its
+# box (run 20261112_194709: 33 curtain pixels at 2.2 m by the teapot's handle made a 0.9 x 1.6 m box; AnyGrasp OOM)
+DEPTH_GATE = 0.25
 SIGMA, KEEP = 0.01, 0.5  # heatmap Gaussian (m); keep candidates with heat >= KEEP * max
 TABLE_CLEAR, PRE_GRASP_MAX = (
     0.02,
@@ -69,6 +72,7 @@ def anygrasp(rgb, depth, K, mask, dense=True, approach=None, approach_deg=30.0):
     y = closing, z = normal; score-sorted)."""
     valid = (depth > 0.05) & (depth < 3.0)
     obj, _ = backproject(depth, K, valid & mask)
+    obj = obj[np.abs(obj[:, 2] - np.median(obj[:, 2])) <= DEPTH_GATE]
     lo, hi = obj.min(0) - MARGIN, obj.max(0) + MARGIN
     allp, (v, u) = backproject(depth, K, valid)
     inside = np.all((allp >= lo - CONTEXT) & (allp <= hi + CONTEXT), axis=1)
