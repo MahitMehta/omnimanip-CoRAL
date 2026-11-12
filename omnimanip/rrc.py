@@ -12,9 +12,7 @@ from . import constraints as C
 from . import vlm
 from .directions import ARROW_LEN, CV_TO_GL, arrow
 
-INPAINT_DILATE = (
-    7  # px at 480 rows: cover the mask's edge so the object's outline is not left behind
-)
+INPAINT_DILATE = 7  # px at 480 rows: cover the mask's edge so the object's outline is not left behind
 
 
 def inpaint(rgb, mask):

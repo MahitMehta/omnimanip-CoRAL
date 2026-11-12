@@ -22,12 +22,17 @@ from .config import ROOT
 
 CACHE_DIR = ROOT / "outputs" / "mesh_cache"
 POSE_CONTAINER, POSE_DIR = "PoseServer", "/tmp/omnimanip_mesh_cache"
-SIZE_TOL, MIN_IOU = 0.02, 0.7  # m: observed vs cached height; silhouette-vs-mask IoU to keep a mesh
+SIZE_TOL, MIN_IOU = (
+    0.02,
+    0.7,
+)  # m: observed vs cached height; silhouette-vs-mask IoU to keep a mesh
 FILES = ("mesh.obj", "material.mtl", "material_0.png")
 
 
 def _height(P, plane):
-    return P @ np.asarray(plane["n"], float) + float(plane["d"])  # camera on the positive side: up is positive
+    return P @ np.asarray(plane["n"], float) + float(
+        plane["d"]
+    )  # camera on the positive side: up is positive
 
 
 def _footprint(P, plane):
@@ -37,8 +42,19 @@ def _footprint(P, plane):
     a /= np.linalg.norm(a)
     b = np.cross(n, a)
     uv = np.c_[P @ a, P @ b]
-    return float(max(np.ptp(np.percentile(uv @ np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]), [2, 98], axis=0), 0).max()
-                     for t in np.linspace(0, np.pi / 2, 7)))
+    return float(
+        max(
+            np.ptp(
+                np.percentile(
+                    uv @ np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]]),
+                    [2, 98],
+                    axis=0,
+                ),
+                0,
+            ).max()
+            for t in np.linspace(0, np.pi / 2, 7)
+        )
+    )
 
 
 def observed_size(depth, K, mask, plane):
@@ -60,12 +76,18 @@ def extents(V):
     """The mesh's three oriented-bounding-box side lengths (m), longest first: its height in any resting pose."""
     import trimesh
 
-    return sorted(trimesh.bounds.oriented_bounds(np.asarray(V, float))[1].tolist(), reverse=True)
+    return sorted(
+        trimesh.bounds.oriented_bounds(np.asarray(V, float))[1].tolist(), reverse=True
+    )
 
 
 def entry(name):
     d = CACHE_DIR / name
-    return d if (d / "meta.json").exists() and all((d / f).exists() for f in FILES) else None
+    return (
+        d
+        if (d / "meta.json").exists() and all((d / f).exists() for f in FILES)
+        else None
+    )
 
 
 def lookup(name, depth, K, mask, plane):
@@ -79,10 +101,17 @@ def lookup(name, depth, K, mask, plane):
 
         m["extents_m"] = extents(S.read_obj(d / "mesh.obj")[0])
         (d / "meta.json").write_text(json.dumps(m, indent=1))
-    h, _ = observed_size(depth, K, mask, plane)  # not the footprint: it read 5-6 cm too wide from a side camera (2026-11-02)
-    if min(abs(h - e) for e in m["extents_m"]) > SIZE_TOL:  # any resting pose: lying, standing or on its side
+    h, _ = observed_size(
+        depth, K, mask, plane
+    )  # not the footprint: it read 5-6 cm too wide from a side camera (2026-11-02)
+    if (
+        min(abs(h - e) for e in m["extents_m"]) > SIZE_TOL
+    ):  # any resting pose: lying, standing or on its side
         cached = " / ".join(f"{100 * e:.1f}" for e in m["extents_m"])
-        return None, f"{name!r} looks different from the cached one: {100 * h:.1f} cm tall (cached {cached})"
+        return (
+            None,
+            f"{name!r} looks different from the cached one: {100 * h:.1f} cm tall (cached {cached})",
+        )
     return d, f"cached mesh of {name!r} from {m['source_run']}"
 
 
@@ -90,10 +119,19 @@ def in_pose_container(d):
     """The entry's mesh path inside PoseServer's container, copying the entry there if it isn't yet."""
     m = json.loads((d / "meta.json").read_text())
     dst = f"{POSE_DIR}/{d.name}_{m['id']}"
-    if subprocess.run(["docker", "exec", POSE_CONTAINER, "test", "-f", f"{dst}/mesh.obj"]).returncode != 0:
-        subprocess.run(["docker", "exec", POSE_CONTAINER, "mkdir", "-p", dst], check=True)
+    if (
+        subprocess.run(
+            ["docker", "exec", POSE_CONTAINER, "test", "-f", f"{dst}/mesh.obj"]
+        ).returncode
+        != 0
+    ):
+        subprocess.run(
+            ["docker", "exec", POSE_CONTAINER, "mkdir", "-p", dst], check=True
+        )
         for f in FILES:
-            subprocess.run(["docker", "cp", str(d / f), f"{POSE_CONTAINER}:{dst}/{f}"], check=True)
+            subprocess.run(
+                ["docker", "cp", str(d / f), f"{POSE_CONTAINER}:{dst}/{f}"], check=True
+            )
     return f"{dst}/mesh.obj"
 
 
@@ -107,10 +145,19 @@ def save(name, mesh_obj, cam_T_obj, plane, source_run):
     d = CACHE_DIR / name
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True)
-    shutil.copy(src, d / "mesh.obj")  # its mtllib is material.mtl, whose map_Kd is material_0.png
+    shutil.copy(
+        src, d / "mesh.obj"
+    )  # its mtllib is material.mtl, whose map_Kd is material_0.png
     for f_ in ("material.mtl", "material_0.png"):
         shutil.copy(src.parent / f_, d / f_)
-    meta = {"name": name, "source_run": str(source_run), "height_m": h, "footprint_m": f, "extents_m": extents(V), "id": int(time.time())}
+    meta = {
+        "name": name,
+        "source_run": str(source_run),
+        "height_m": h,
+        "footprint_m": f,
+        "extents_m": extents(V),
+        "id": int(time.time()),
+    }
     (d / "meta.json").write_text(json.dumps(meta, indent=1))
     return meta
 
@@ -120,11 +167,21 @@ if __name__ == "__main__":
     if cmd == "list":
         for d in sorted(CACHE_DIR.glob("*/meta.json")):
             m = json.loads(d.read_text())
-            print(f"{m['name']:10s} {100 * m['height_m']:5.1f} cm tall, {100 * m['footprint_m']:5.1f} cm across, from {m['source_run']}")
+            print(
+                f"{m['name']:10s} {100 * m['height_m']:5.1f} cm tall, {100 * m['footprint_m']:5.1f} cm across, from {m['source_run']}"
+            )
     elif cmd == "set":
         name, run = sys.argv[2], Path(sys.argv[3])
         o = json.loads((run / "objects.json").read_text())[name]
         plane = json.loads((run / "packet.json").read_text())["plane"]
-        print(save(name, o["final_mesh"].replace("runs/bag0216_", "runs/1bag0216_"), o["cam_T_obj"], plane, run.name))
+        print(
+            save(
+                name,
+                o["final_mesh"].replace("runs/bag0216_", "runs/1bag0216_"),
+                o["cam_T_obj"],
+                plane,
+                run.name,
+            )
+        )
     elif cmd == "drop":
         shutil.rmtree(CACHE_DIR / sys.argv[2], ignore_errors=True)

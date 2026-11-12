@@ -402,24 +402,49 @@ def grasp(r, a):
             )
         else:
             steer = {}
-            if a.top_down_deg is not None:  # straight down the table's normal (camera frame; up is +n)
-                steer = {"approach": -np.asarray(r.json("packet.json")["plane"]["n"], float), "approach_deg": a.top_down_deg}
+            if (
+                a.top_down_deg is not None
+            ):  # straight down the table's normal (camera frame; up is +n)
+                steer = {
+                    "approach": -np.asarray(r.json("packet.json")["plane"]["n"], float),
+                    "approach_deg": a.top_down_deg,
+                }
             rep = G.anygrasp(r.rgb, r.depth, r.K, mask, **steer)
         if not rep["n"]:
             print(f"{name}: AnyGrasp returned no grasps")
             continue
-        if not a.sim_mesh_grasps:  # the real-gripper check, near the dots, reachable from the capture joints
+        if (
+            not a.sim_mesh_grasps
+        ):  # the real-gripper check, near the dots, reachable from the capture joints
             pk = r.json("packet.json")
             T = r.T(name)
-            jn = [n.removeprefix("robot0_") for n in pk["joints"]["names"]]  # sim joints carry robosuite's prefix
+            jn = [
+                n.removeprefix("robot0_") for n in pk["joints"]["names"]
+            ]  # sim joints carry robosuite's prefix
             ok, counts = G.candidates(
-                rep, r.depth, r.K, mask, pk["plane"], np.asarray(gp["points"]) @ T[:3, :3].T + T[:3, 3]
+                rep,
+                r.depth,
+                r.K,
+                mask,
+                pk["plane"],
+                np.asarray(gp["points"]) @ T[:3, :3].T + T[:3, 3],
             )
             picked, tried = G.choose_reachable(
-                rep, T, gp["points"], ok, r.depth, r.K, np.asarray(pk["t_base_cam"]["T"], float),
-                [pk["joints"]["q"][jn.index(n)] for n in motion.UR_JOINTS], pk["plane"],
+                rep,
+                T,
+                gp["points"],
+                ok,
+                r.depth,
+                r.K,
+                np.asarray(pk["t_base_cam"]["T"], float),
+                [pk["joints"]["q"][jn.index(n)] for n in motion.UR_JOINTS],
+                pk["plane"],
             )
-            print(f"{name}: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", picks tried for reach {tried}")
+            print(
+                f"{name}: "
+                + ", ".join(f"{k} {v}" for k, v in counts.items())
+                + f", picks tried for reach {tried}"
+            )
             if picked is None:
                 continue
         else:
@@ -494,8 +519,12 @@ def targetpose(r, a):
             r.T(Pv),
         )
         oa, op = r.objects[A], r.objects[Pv]
-        held = TP.held_model(oa["final_mesh"], oa["canonical_frame"]["R_body_from_canon"])
-        passive = TP.passive_model(op["final_mesh"], op["canonical_frame"]["R_body_from_canon"])
+        held = TP.held_model(
+            oa["final_mesh"], oa["canonical_frame"]["R_body_from_canon"]
+        )
+        passive = TP.passive_model(
+            op["final_mesh"], op["canonical_frame"]["R_body_from_canon"]
+        )
         T_ee, terms, ok = TP.solve(c, phi, T_ee0, T_p, obst, g["width"], held, passive)
         print(
             f"{st['action']}: {'OK' if ok else 'FAILED (rho above tolerance)'} | terms "

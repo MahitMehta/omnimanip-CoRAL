@@ -242,7 +242,10 @@ class Bridge(Node):
             K=camera_info_to_K(req.camera_info),
             object=conv.obj_of(req.object),
             grasp_points=np.array([conv.xyz(p) for p in req.grasp_points]),
-            table_plane={"n": list(req.table_plane[:3]), "d": float(req.table_plane[3])},
+            table_plane={
+                "n": list(req.table_plane[:3]),
+                "d": float(req.table_plane[3]),
+            },
             base_T_cam=np.asarray(req.base_t_cam, float).reshape(4, 4),
             q=list(req.q),
             top_down_deg=float(req.top_down_deg),
@@ -254,7 +257,11 @@ class Bridge(Node):
             conv.pose_of(r["phi"]),
         )
         res.width, res.depth, res.score = r["width"], r["depth"], r["score"]
-        res.n_candidates, res.n_feasible, res.index = int(r["n"]), int(r["n_feasible"]), int(r["index"])
+        res.n_candidates, res.n_feasible, res.index = (
+            int(r["n"]),
+            int(r["n_feasible"]),
+            int(r["index"]),
+        )
         res.overlay = conv.rgb_msg(r["overlay"], req.rgb.header)
         res.candidates = [conv.pose_of(T) for T in r["candidates"]]
         res.candidate_widths = [float(x) for x in r["candidate_widths"]]

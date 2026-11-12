@@ -20,11 +20,24 @@ MARGIN, CONTEXT = (
     0.15,
 )  # m: lims box around the object; table context sent for collision checking
 SIGMA, KEEP = 0.01, 0.5  # heatmap Gaussian (m); keep candidates with heat >= KEEP * max
-TABLE_CLEAR, PRE_GRASP_MAX = 0.02, 0.16  # m: gripper clearance above the table; execute's farthest pre-grasp
-TIP_CLEAR, TIP_LEN = 0.003, 0.02  # m: the fingertips (their last TIP_LEN) may come this close to the table
-PRE_GRASPS = (0.08, 0.12, 0.16)  # m: execute's pre-grasp back-offs, in the order it tries them
+TABLE_CLEAR, PRE_GRASP_MAX = (
+    0.02,
+    0.16,
+)  # m: gripper clearance above the table; execute's farthest pre-grasp
+TIP_CLEAR, TIP_LEN = (
+    0.003,
+    0.02,
+)  # m: the fingertips (their last TIP_LEN) may come this close to the table
+PRE_GRASPS = (
+    0.08,
+    0.12,
+    0.16,
+)  # m: execute's pre-grasp back-offs, in the order it tries them
 REACH_CAP = 0.05  # m: farthest a grasp may sit from a grasp dot to be considered
-MIN_DEPTH, MAX_OPEN = 0.0075, 0.08  # m: fingertips at least this far past the grasp centre; opening at most this
+MIN_DEPTH, MAX_OPEN = (
+    0.0075,
+    0.08,
+)  # m: fingertips at least this far past the grasp centre; opening at most this
 # run_task --ideal-grasp: a hand-set grasp per object name, in the body frame of that object's cached mesh (mesh_id =
 # its meta.json id, so a replaced mesh is refused). Teapot: the handle's outer bar (-z end of the mesh, 0.7 cm thick
 # across x, 0.9 along z) at mid height, approached from the back at 45 deg to vertical, jaws closing across it (horizontal
@@ -62,11 +75,23 @@ def anygrasp(rgb, depth, K, mask, dense=True, approach=None, approach_deg=30.0):
     pts, cols = allp[inside], (rgb[v[inside], u[inside]].astype(np.float32) / 255.0)
     lims = [float(x) for x in (lo[0], hi[0], lo[1], hi[1], lo[2], hi[2])]
     cli = SidecarClient(f"tcp://{HOST}:{SIDECARS['anygrasp']}", 120_000, codec="pickle")
-    steer = {} if approach is None else {
-        "approach_steering": [float(x) for x in approach], "approach_thresh": float(np.radians(approach_deg))
-    }
+    steer = (
+        {}
+        if approach is None
+        else {
+            "approach_steering": [float(x) for x in approach],
+            "approach_thresh": float(np.radians(approach_deg)),
+        }
+    )
     return cli.call(
-        {"points": pts, "colors": cols, "lims": lims, "collision_detection": True, "dense_grasp": dense, **steer}
+        {
+            "points": pts,
+            "colors": cols,
+            "lims": lims,
+            "collision_detection": True,
+            "dense_grasp": dense,
+            **steer,
+        }
     )
 
 
@@ -76,7 +101,10 @@ def _gripper_points():
     far along y it slides per metre of closing (the fingers; 0 for the body)."""
     g = gripper.GRIPPER
     T = gripper.grasp_T_base(g, 0.0)
-    V, W = (np.asarray(gripper.mesh(g, w).vertices) @ T[:3, :3].T + T[:3, 3] for w in (g.max_width, 0.0))
+    V, W = (
+        np.asarray(gripper.mesh(g, w).vertices) @ T[:3, :3].T + T[:3, 3]
+        for w in (g.max_width, 0.0)
+    )
     return V, (W[:, 1] - V[:, 1]) / g.max_width
 
 
@@ -93,7 +121,9 @@ def feasible(rep, depth, K, mask, plane):
     valid = (depth > 0.05) & (depth < 3.0)
     scene, _ = backproject(depth, K, valid)
     others, _ = backproject(depth, K, valid & ~mask)
-    off = lambda P: np.abs(P @ n_pl + d_pl) >= 0.01  # the table itself is checked analytically
+    off = lambda P: (
+        np.abs(P @ n_pl + d_pl) >= 0.01
+    )  # the table itself is checked analytically
     t_scene, t_others = KDTree(scene[off(scene)]), KDTree(others[off(others)])
     V0, slide = _gripper_points()
     tip = V0[:, 0] >= -TIP_LEN
@@ -109,7 +139,10 @@ def feasible(rep, depth, K, mask, plane):
         V[:, 1] += slide * (g.max_width - w)
         M = V @ R.T + t + d * R[:, 0]
         ok[i] = (
-            all(((P @ n_pl + d_pl) >= clear).all() for P in (M, M - PRE_GRASP_MAX * R[:, 0]))
+            all(
+                ((P @ n_pl + d_pl) >= clear).all()
+                for P in (M, M - PRE_GRASP_MAX * R[:, 0])
+            )
             and (t_scene.query(C[palm])[0] > S[palm, 3]).all()
             and (t_others.query(C[~palm])[0] > S[~palm, 3]).all()
         )
@@ -123,15 +156,23 @@ def ideal_grasp(name, mesh_path, cam_T_obj):
     if g is None:
         return None
     d = mesh_cache.entry(name)
-    if d is None or json.loads((d / "meta.json").read_text())["id"] != g["mesh_id"] or not filecmp.cmp(mesh_path, d / "mesh.obj"):
-        raise RuntimeError(f"the ideal grasp of {name!r} was set on cached mesh {g['mesh_id']}, and this run's mesh isn't it")
+    if (
+        d is None
+        or json.loads((d / "meta.json").read_text())["id"] != g["mesh_id"]
+        or not filecmp.cmp(mesh_path, d / "mesh.obj")
+    ):
+        raise RuntimeError(
+            f"the ideal grasp of {name!r} was set on cached mesh {g['mesh_id']}, and this run's mesh isn't it"
+        )
     x = np.asarray(g["approach"], float)
     x /= np.linalg.norm(x)
     y = np.asarray(g["closing"], float)
     y = y - (y @ x) * x
     y /= np.linalg.norm(y)
     cam_T_obj = np.asarray(cam_T_obj, float)
-    rotations = [cam_T_obj[:3, :3] @ np.c_[x, s * y, s * np.cross(x, y)] for s in (1, -1)]
+    rotations = [
+        cam_T_obj[:3, :3] @ np.c_[x, s * y, s * np.cross(x, y)] for s in (1, -1)
+    ]
     t = cam_T_obj[:3, :3] @ np.asarray(g["center"], float) + cam_T_obj[:3, 3]
     return {
         "n": 2,
@@ -153,7 +194,10 @@ def reaches(rep, i, T_base_cam, q):
     for pre in PRE_GRASPS:
         T_pre = T.copy()
         T_pre[:3, 3] -= pre * T[:3, 0]
-        if motion.plan(q, T_pre @ np.linalg.inv(tool0_T_g), None, list(q))[0] is not None:
+        if (
+            motion.plan(q, T_pre @ np.linalg.inv(tool0_T_g), None, list(q))[0]
+            is not None
+        ):
             return True
     return False
 
@@ -163,10 +207,21 @@ def candidates(rep, depth, K, mask, plane, grasp_points_cam):
     MIN_DEPTH past the grasp centre, opening at most MAX_OPEN: at the gripper's full 8.5 cm AnyGrasp found no pair of
     contacts and the jaws can land on the object) and lie within REACH_CAP of a grasp dot. -> (bool per candidate, counts)."""
     ok = feasible(rep, depth, K, mask, plane)
-    hold = ok & (np.asarray(rep["depths"]) >= MIN_DEPTH - 1e-6) & (np.asarray(rep["widths"]) <= MAX_OPEN)
-    d = np.linalg.norm(rep["translations"][:, None] - np.asarray(grasp_points_cam)[None], axis=2).min(1)
+    hold = (
+        ok
+        & (np.asarray(rep["depths"]) >= MIN_DEPTH - 1e-6)
+        & (np.asarray(rep["widths"]) <= MAX_OPEN)
+    )
+    d = np.linalg.norm(
+        rep["translations"][:, None] - np.asarray(grasp_points_cam)[None], axis=2
+    ).min(1)
     near = hold & (d <= REACH_CAP)
-    return near, {"proposed": int(rep["n"]), "real_gripper": int(ok.sum()), "holds": int(hold.sum()), "near_dots": int(near.sum())}
+    return near, {
+        "proposed": int(rep["n"]),
+        "real_gripper": int(ok.sum()),
+        "holds": int(hold.sum()),
+        "near_dots": int(near.sum()),
+    }
 
 
 def heat(x, grasp_points_cam):
@@ -200,7 +255,9 @@ def choose(rep, cam_T_can, grasp_points_can, ok=None):
     return i, T_g, np.linalg.inv(T_g) @ cam_T_can, p_cam, h
 
 
-def choose_reachable(rep, cam_T_can, grasp_points_can, ok, depth, K, T_base_cam, q, plane):
+def choose_reachable(
+    rep, cam_T_can, grasp_points_can, ok, depth, K, T_base_cam, q, plane
+):
     """choose()'s pick that cuRobo can reach, best first: a refused grasp leaves the `ok` pool and the next pick is
     tried, against the frame's depth and the table slab. -> (choose()'s result or None, picks tried)."""
     from . import motion
@@ -229,7 +286,10 @@ def overlay(rgb, K, rep, p_cam, i, up):
         tuple(int(v) for v in p) for p in np.round(viz.project(K, T_g, np.array(X)))
     ]
     # bracket: fingertip -> palm -> other fingertip, and the wrist stem from the palm's middle
-    bracket = np.array(px([[d, -w / 2, 0], [-0.02, -w / 2, 0], [-0.02, w / 2, 0], [d, w / 2, 0]]), np.int32)
+    bracket = np.array(
+        px([[d, -w / 2, 0], [-0.02, -w / 2, 0], [-0.02, w / 2, 0], [d, w / 2, 0]]),
+        np.int32,
+    )
     stem = px([[-0.02, 0, 0], [-0.06, 0, 0]])
     for col, th in (((0, 0, 0), 6), ((0, 220, 0), 3)):  # outline, then the bracket
         cv2.polylines(im, [bracket], False, col, th, cv2.LINE_AA)

@@ -133,13 +133,35 @@ def _points_overlay(rgb, info, pts, path):
     im, K = image_to_rgb(rgb).copy(), np.asarray(info.k, float).reshape(3, 3)
     for p in pts:
         for x, y, z in p["points_camera"]:
-            u, v = int(round(K[0, 0] * x / z + K[0, 2])), int(round(K[1, 1] * y / z + K[1, 2]))
-            cv2.circle(im, (u, v), 6, (255, 0, 0) if p["kind"] == "grasp" else (255, 255, 0), -1)
+            u, v = (
+                int(round(K[0, 0] * x / z + K[0, 2])),
+                int(round(K[1, 1] * y / z + K[1, 2])),
+            )
+            cv2.circle(
+                im,
+                (u, v),
+                6,
+                (255, 0, 0) if p["kind"] == "grasp" else (255, 255, 0),
+                -1,
+            )
             cv2.circle(im, (u, v), 6, (0, 0, 0), 1)
     cv2.imwrite(str(path), cv2.cvtColor(im, cv2.COLOR_RGB2BGR))
 
 
-def _select_grasps(node, plan_msg, rgb, depth, info, models, pts, packet, run, top_down_deg, ideal_grasp, allow_no_pick=False):
+def _select_grasps(
+    node,
+    plan_msg,
+    rgb,
+    depth,
+    info,
+    models,
+    pts,
+    packet,
+    run,
+    top_down_deg,
+    ideal_grasp,
+    allow_no_pick=False,
+):
     """15 for every grasp stage's object: writes grasp/ (picked grasps only) -> {object: SelectGrasp reply}."""
     grasps = {}
     for s in plan_msg.stages:
@@ -156,9 +178,15 @@ def _select_grasps(node, plan_msg, rgb, depth, info, models, pts, packet, run, t
             camera_info=info,
             object=models[name],
             grasp_points=[conv.point(q) for q in pts[name, "grasp"]["points"]],
-            table_plane=[float(x) for x in packet["plane"]["n"]] + [float(packet["plane"]["d"])],
-            base_t_cam=[float(x) for x in np.asarray(packet["t_base_cam"]["T"], float).ravel()],
-            q=[float(packet["joints"]["q"][packet["joints"]["names"].index(n)]) for n in UR_JOINTS],
+            table_plane=[float(x) for x in packet["plane"]["n"]]
+            + [float(packet["plane"]["d"])],
+            base_t_cam=[
+                float(x) for x in np.asarray(packet["t_base_cam"]["T"], float).ravel()
+            ],
+            q=[
+                float(packet["joints"]["q"][packet["joints"]["names"].index(n)])
+                for n in UR_JOINTS
+            ],
             top_down_deg=top_down_deg,
             ideal_grasp=ideal_grasp,
             allow_no_pick=allow_no_pick,
@@ -195,27 +223,51 @@ def _publish_grasps(node, rgb, depth, info, grasps):
     d, im = image_to_depth_m(depth), image_to_rgb(rgb)
     valid = np.zeros(d.shape, bool)
     valid[::2, ::2] = True  # every 2nd pixel each way
-    pts, (v, u) = backproject(d, np.asarray(info.k, float).reshape(3, 3), valid & (d > 0.05) & (d < 3.0))
-    pub(PointCloud2, "/omnimanip/grasps/cloud", xyzrgb_to_cloud(pts, im[v, u].astype(np.float32) / 255.0, hdr))
+    pts, (v, u) = backproject(
+        d, np.asarray(info.k, float).reshape(3, 3), valid & (d > 0.05) & (d < 3.0)
+    )
+    pub(
+        PointCloud2,
+        "/omnimanip/grasps/cloud",
+        xyzrgb_to_cloud(pts, im[v, u].astype(np.float32) / 255.0, hdr),
+    )
 
     markers = MarkerArray()
     for name, g in grasps.items():
         n = len(g.candidates)
         sets = {
             "proposed": (range(n), (1.0, 0.1, 0.1, 0.35), 0.001),
-            "filtered": ([i for i in range(n) if g.candidate_ok[i]], (0.1, 1.0, 0.1, 1.0), 0.002),
+            "filtered": (
+                [i for i in range(n) if g.candidate_ok[i]],
+                (0.1, 1.0, 0.1, 1.0),
+                0.002,
+            ),
             "chosen": ([g.index] if g.index >= 0 else [], (0.1, 0.4, 1.0, 1.0), 0.005),
         }
         for kind, (idx, (cr, cg, cb, ca), thick) in sets.items():
             poses = [g.candidates[i] for i in idx]
-            pub(PoseArray, f"/omnimanip/grasps/{re.sub(r'[^0-9A-Za-z_]', '_', name)}/{kind}", PoseArray(header=hdr, poses=poses))
-            m = Marker(header=hdr, ns=f"{name}/{kind}", id=0, type=Marker.LINE_LIST, action=Marker.ADD)
+            pub(
+                PoseArray,
+                f"/omnimanip/grasps/{re.sub(r'[^0-9A-Za-z_]', '_', name)}/{kind}",
+                PoseArray(header=hdr, poses=poses),
+            )
+            m = Marker(
+                header=hdr,
+                ns=f"{name}/{kind}",
+                id=0,
+                type=Marker.LINE_LIST,
+                action=Marker.ADD,
+            )
             m.pose.orientation.w, m.scale.x = 1.0, thick
             m.color.r, m.color.g, m.color.b, m.color.a = cr, cg, cb, ca
             for i in idx:
                 T = conv.T_of(g.candidates[i])
-                lines = gripper_lines(T[:3, 3], T[:3, :3], g.candidate_widths[i], g.candidate_depths[i])
-                m.points.extend(Point(x=float(p[0]), y=float(p[1]), z=float(p[2])) for p in lines)
+                lines = gripper_lines(
+                    T[:3, 3], T[:3, :3], g.candidate_widths[i], g.candidate_depths[i]
+                )
+                m.points.extend(
+                    Point(x=float(p[0]), y=float(p[1]), z=float(p[2])) for p in lines
+                )
             markers.markers.append(m)
         node.get_logger().info(
             f"{name}: {n} proposed, {sum(g.candidate_ok)} filtered, "
@@ -225,7 +277,14 @@ def _publish_grasps(node, rgb, depth, info, grasps):
 
 
 def run(
-    node, task, run, decide=True, mesh_cache=False, top_down_deg=0.0, ideal_grasp=False, grasps_only=False,
+    node,
+    task,
+    run,
+    decide=True,
+    mesh_cache=False,
+    top_down_deg=0.0,
+    ideal_grasp=False,
+    grasps_only=False,
     low_res_mesh=False,
 ):
     for d in (
@@ -265,7 +324,9 @@ def run(
     cal = json.loads(mk.report_json).get("calibration", {})
     if not cal.get("ok", True):
         node.get_logger().warn(
-            "calibration check: " + "; ".join(cal["problems"]) + f" (see {run / 'calibration_check.png'})"
+            "calibration check: "
+            + "; ".join(cal["problems"])
+            + f" (see {run / 'calibration_check.png'})"
         )
     masks = dict(zip(mk.mark_ids, mk.masks))
     plan_msg = node.call("partition_task", task=task, marked=mk.marked).plan
@@ -337,21 +398,39 @@ def run(
     elements = [
         e
         for e in plan_msg.elements
-        if e.object in models and (not grasps_only or e.action == "grasp")  # the gripper has no mesh
+        if e.object in models
+        and (not grasps_only or e.action == "grasp")  # the gripper has no mesh
     ]
     calls = []
     for e in elements:
-        calls.append((
-            "propose_points",
-            node.slot(),
-            {"rgb": rgb, "depth": depth, "camera_info": info, "task": task, "object": models[e.object], "element": e},
-        ))
-        if e.action != "grasp":
-            calls.append((
-                "propose_directions",
+        calls.append(
+            (
+                "propose_points",
                 node.slot(),
-                {"camera_info": info, "task": task, "object": models[e.object], "element": e, "object_parts": parts[e.object]},
-            ))
+                {
+                    "rgb": rgb,
+                    "depth": depth,
+                    "camera_info": info,
+                    "task": task,
+                    "object": models[e.object],
+                    "element": e,
+                },
+            )
+        )
+        if e.action != "grasp":
+            calls.append(
+                (
+                    "propose_directions",
+                    node.slot(),
+                    {
+                        "camera_info": info,
+                        "task": task,
+                        "object": models[e.object],
+                        "element": e,
+                        "object_parts": parts[e.object],
+                    },
+                )
+            )
     replies = iter(_parallel(lambda c: node.call(c[0], c[1], **c[2]), calls))
     for e in elements:
         p = next(replies)
@@ -390,10 +469,23 @@ def run(
 
     if grasps_only:
         grasps = _select_grasps(
-            node, plan_msg, rgb, depth, info, models, pts, packet, run, top_down_deg, ideal_grasp, allow_no_pick=True
+            node,
+            plan_msg,
+            rgb,
+            depth,
+            info,
+            models,
+            pts,
+            packet,
+            run,
+            top_down_deg,
+            ideal_grasp,
+            allow_no_pick=True,
         )
         if not grasps:
-            raise RuntimeError("the plan has no grasp stage on a marked object: name what to grasp in --task")
+            raise RuntimeError(
+                "the plan has no grasp stage on a marked object: name what to grasp in --task"
+            )
         _publish_grasps(node, rgb, depth, info, grasps)
         return
 
@@ -404,9 +496,13 @@ def run(
         A, Pv = s.active_object, s.passive_object
         if s.action == "grasp":
             continue
-        if A not in models or Pv not in models:  # e.g. "place on the table": a surface has no mark, mesh or point
+        if (
+            A not in models or Pv not in models
+        ):  # e.g. "place on the table": a surface has no mark, mesh or point
             missing = [o for o in (A, Pv) if o not in models]
-            node.get_logger().warn(f"{s.action}: skipped, {', '.join(missing)} has no mark (a surface, or not detected)")
+            node.get_logger().warn(
+                f"{s.action}: skipped, {', '.join(missing)} has no mark (a surface, or not detected)"
+            )
             continue
         K = node.call(
             "build_constraints",
@@ -454,7 +550,9 @@ def run(
         )
         accepted[s.action] = (s, r.constraint) if r.accepted else None
         if not r.accepted:
-            node.get_logger().warn(f"{s.action}: RRC NOT accepted: none of its {len(trace)} checks succeeded")
+            node.get_logger().warn(
+                f"{s.action}: RRC NOT accepted: none of its {len(trace)} checks succeeded"
+            )
         stages[-1]["rrc"] = {"accepted": acc, "trace": trace}
     _dump(
         [{k: v for k, v in st.items() if k != "rrc"} for st in stages],
@@ -478,7 +576,19 @@ def run(
         )
 
     # 15 grasp (grasp stages)
-    grasps = _select_grasps(node, plan_msg, rgb, depth, info, models, pts, packet, run, top_down_deg, ideal_grasp)
+    grasps = _select_grasps(
+        node,
+        plan_msg,
+        rgb,
+        depth,
+        info,
+        models,
+        pts,
+        packet,
+        run,
+        top_down_deg,
+        ideal_grasp,
+    )
 
     # 16 target pose (stages with an accepted constraint)
     exclude = np.any([conv.mask_of(m) for m in masks.values()], axis=0)
@@ -528,7 +638,9 @@ def main():
     ap.add_argument("--task", required=True)
     where = ap.add_mutually_exclusive_group(required=True)
     where.add_argument("--out", help="runs root; the run goes to <out>/<timestamp>")
-    where.add_argument("--resume", help="a run dir to continue from its first failed or missing call")
+    where.add_argument(
+        "--resume", help="a run dir to continue from its first failed or missing call"
+    )
     ap.add_argument(
         "--no-decide",
         action="store_true",
@@ -564,8 +676,14 @@ def main():
     a, ros_args = ap.parse_known_args()
     a.mesh_cache = a.mesh_cache or a.low_res_mesh
     if a.ideal_grasp and not a.mesh_cache:
-        ap.error("--ideal-grasp needs --mesh-cache: its poses are set on the cached meshes")
-    out = Path(a.resume) if a.resume else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
+        ap.error(
+            "--ideal-grasp needs --mesh-cache: its poses are set on the cached meshes"
+        )
+    out = (
+        Path(a.resume)
+        if a.resume
+        else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
+    )
     (out / "calls").mkdir(parents=True, exist_ok=True)
     rclpy.init(args=ros_args)
     node = Runner(out / "calls")
@@ -575,11 +693,20 @@ def main():
     node.get_logger().info(f"run dir {out}" + (" (resumed)" if a.resume else ""))
     try:
         run(
-            node, a.task, out, decide=not a.no_decide, mesh_cache=a.mesh_cache, top_down_deg=a.top_down_deg,
-            ideal_grasp=a.ideal_grasp, grasps_only=a.grasps_only, low_res_mesh=a.low_res_mesh,
+            node,
+            a.task,
+            out,
+            decide=not a.no_decide,
+            mesh_cache=a.mesh_cache,
+            top_down_deg=a.top_down_deg,
+            ideal_grasp=a.ideal_grasp,
+            grasps_only=a.grasps_only,
+            low_res_mesh=a.low_res_mesh,
         )
         if a.grasps_only:
-            node.get_logger().info("grasps latched on /omnimanip/grasps/*; Ctrl-C to exit")
+            node.get_logger().info(
+                "grasps latched on /omnimanip/grasps/*; Ctrl-C to exit"
+            )
             threading.Event().wait()
     except KeyboardInterrupt:
         pass

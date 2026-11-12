@@ -25,7 +25,9 @@ FG_TOL = 0.02  # m: window depths this close to the nearest one are the object (
 RAY_HIT = 0.003  # m: mesh vertices this close to a dot's ray are the surface it hits
 MISS_TOL = 0.05  # m: how far depth may be from the mesh's closest vertex when the dot's ray misses the mesh
 VIEW_PX = 512
-GL_LOCK = threading.RLock()  # one pyrender renderer at a time: server.py runs points and directions concurrently
+GL_LOCK = (
+    threading.RLock()
+)  # one pyrender renderer at a time: server.py runs points and directions concurrently
 
 
 def scaffold(img, grid=GRID, keep=None):
@@ -126,13 +128,26 @@ def lift(u, v, depth, K, mask, cam_T_can, V_can, win=DEPTH_WIN):
     if ok.any():
         d = depth[y0:y1, x0:x1][ok]
         z = float(np.median(d[d <= d.min() + FG_TOL]))
-    p_mesh, hit = mesh_point(u, v, K, np.asarray(V_can) @ cam_T_can[:3, :3].T + cam_T_can[:3, 3])
+    p_mesh, hit = mesh_point(
+        u, v, K, np.asarray(V_can) @ cam_T_can[:3, :3].T + cam_T_can[:3, 3]
+    )
     inside = bool(mask[v, u])
-    use_mesh = not inside or z is None or abs(z - p_mesh[2]) > (FG_TOL if hit else MISS_TOL)
+    use_mesh = (
+        not inside or z is None or abs(z - p_mesh[2]) > (FG_TOL if hit else MISS_TOL)
+    )
     if use_mesh:
-        seen = "outside the mask" if not inside else "no depth" if z is None else f"depth {z:.3f} m"
-        print(f"WARNING dot ({u}, {v}): {seen}, snapped onto the mesh at {p_mesh[2]:.3f} m"
-              + ("" if hit else " (its ray misses the mesh: closest vertex)"), flush=True)
+        seen = (
+            "outside the mask"
+            if not inside
+            else "no depth"
+            if z is None
+            else f"depth {z:.3f} m"
+        )
+        print(
+            f"WARNING dot ({u}, {v}): {seen}, snapped onto the mesh at {p_mesh[2]:.3f} m"
+            + ("" if hit else " (its ray misses the mesh: closest vertex)"),
+            flush=True,
+        )
         p = p_mesh
     else:
         p = np.array([(u - K[0, 2]) * z / K[0, 0], (v - K[1, 2]) * z / K[1, 1], z])
@@ -230,10 +245,14 @@ def grasp_points(rgb, depth, K, mask, cam_T_can, V_can, **fields):
     return {"points": np.array(pts), "dots": sel, "vlm": rep, "images": [g]}
 
 
-_LOAD_LOCK = threading.Lock()  # one load at a time: five concurrent loads of a 60 MB OBJ took 80 s each, one 4 s
+_LOAD_LOCK = (
+    threading.Lock()
+)  # one load at a time: five concurrent loads of a 60 MB OBJ took 80 s each, one 4 s
 
 
-@lru_cache(maxsize=4)  # the run's objects: points, directions, RRC and target pose all load the same meshes
+@lru_cache(
+    maxsize=4
+)  # the run's objects: points, directions, RRC and target pose all load the same meshes
 def _load(path):
     m = trimesh.load(path, force="mesh", process=False)
     assert isinstance(m, trimesh.Trimesh)

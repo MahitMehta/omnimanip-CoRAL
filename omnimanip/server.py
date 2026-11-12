@@ -34,7 +34,12 @@ from . import targetpose as TP
 msgpack_numpy.patch()
 PORT = int(os.getenv("OMNIMANIP_PORT", "5690"))
 WORKERS = 8
-PARALLEL = {"register", "canonicalize", "points", "directions"}  # run_task calls these at once; every other command runs alone
+PARALLEL = {
+    "register",
+    "canonicalize",
+    "points",
+    "directions",
+}  # run_task calls these at once; every other command runs alone
 
 
 def _json(o):
@@ -59,9 +64,16 @@ def _fields(r, obj, element):
 
 def marks(r):
     packet = json.loads(r["packet_json"])
-    cal = calib.save(r["run_dir"], r["rgb"], r["K"], packet)  # a warning only: run_task logs it from the report
+    cal = calib.save(
+        r["run_dir"], r["rgb"], r["K"], packet
+    )  # a warning only: run_task logs it from the report
     if not cal["ok"]:
-        print("WARNING calibration check: " + "; ".join(cal["problems"]) + " (see calibration_check.png)", flush=True)
+        print(
+            "WARNING calibration check: "
+            + "; ".join(cal["problems"])
+            + " (see calibration_check.png)",
+            flush=True,
+        )
     m, arm, report = S.marks(
         r["rgb"],
         r["depth"],
@@ -97,7 +109,9 @@ def register(r):
         Path(r["run_dir"]),
         decide=r["decide"],
         cache_name=r.get("object_name") or None,
-        plane=json.loads((Path(r["run_dir"]) / "packet.json").read_text())["plane"] if r.get("object_name") else None,
+        plane=json.loads((Path(r["run_dir"]) / "packet.json").read_text())["plane"]
+        if r.get("object_name")
+        else None,
         low_res=r.get("low_res_mesh", False),
     )
     return {
@@ -211,25 +225,56 @@ def rrc_(r):
 def grasp(r):
     o = r["object"]
     T = np.asarray(o["cam_T_can"])
-    rep = G.ideal_grasp(o["name"], o["mesh_path"], o["cam_T_obj"]) if r.get("ideal_grasp") else None
+    rep = (
+        G.ideal_grasp(o["name"], o["mesh_path"], o["cam_T_obj"])
+        if r.get("ideal_grasp")
+        else None
+    )
     if rep is not None:  # hand-set pose: only the real-gripper and reach checks apply
         # grown: SAM3's mask misses the thin handle's edge, and its pixels would count as another object at the fingers
-        own = cv2.dilate((np.asarray(o["mask"]) > 0).astype(np.uint8), np.ones((31, 31), np.uint8)) > 0
+        own = (
+            cv2.dilate(
+                (np.asarray(o["mask"]) > 0).astype(np.uint8),
+                np.ones((31, 31), np.uint8),
+            )
+            > 0
+        )
         ok = G.feasible(rep, r["depth"], r["K"], own, r["table_plane"])
         counts = {"ideal": rep["n"], "real_gripper": int(ok.sum())}
     else:
         steer = {}
-        if r.get("top_down_deg", 0.0) > 0:  # straight down the table's normal (camera frame; up is +n)
-            steer = {"approach": -np.asarray(r["table_plane"]["n"], float), "approach_deg": r["top_down_deg"]}
-        rep = G.anygrasp(r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0, **steer)
+        if (
+            r.get("top_down_deg", 0.0) > 0
+        ):  # straight down the table's normal (camera frame; up is +n)
+            steer = {
+                "approach": -np.asarray(r["table_plane"]["n"], float),
+                "approach_deg": r["top_down_deg"],
+            }
+        rep = G.anygrasp(
+            r["rgb"], r["depth"], r["K"], np.asarray(o["mask"]) > 0, **steer
+        )
         if not rep["n"]:
             raise RuntimeError("AnyGrasp returned no grasps")
         p_cam = np.asarray(r["grasp_points"]) @ T[:3, :3].T + T[:3, 3]
-        ok, counts = G.candidates(rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"], p_cam)
+        ok, counts = G.candidates(
+            rep, r["depth"], r["K"], np.asarray(o["mask"]) > 0, r["table_plane"], p_cam
+        )
     picked, tried = G.choose_reachable(
-        rep, T, r["grasp_points"], ok, r["depth"], r["K"], r["base_T_cam"], r["q"], r["table_plane"]
+        rep,
+        T,
+        r["grasp_points"],
+        ok,
+        r["depth"],
+        r["K"],
+        r["base_T_cam"],
+        r["q"],
+        r["table_plane"],
     )
-    why = "no grasp left to pick: " + ", ".join(f"{k} {v}" for k, v in counts.items()) + f", unreachable {tried}"
+    why = (
+        "no grasp left to pick: "
+        + ", ".join(f"{k} {v}" for k, v in counts.items())
+        + f", unreachable {tried}"
+    )
     all_cands = {
         "n": int(rep["n"]),
         "n_feasible": int(ok.sum()),
@@ -276,9 +321,20 @@ def targetpose(r):
     obst = TP.obstacles(r["depth"], r["K"], np.asarray(r["obstacle_exclude"]) > 0)
     x0 = r.get("x0")  # executor: warm start at the previous tracker update's target
     a, p = r["active"], r["passive"]
-    held, passive = TP.held_model(a["mesh_path"], a["R"]), TP.passive_model(p["mesh_path"], p["R"])
+    held, passive = (
+        TP.held_model(a["mesh_path"], a["R"]),
+        TP.passive_model(p["mesh_path"], p["R"]),
+    )
     T_ee, terms, ok = TP.solve(
-        c, phi, T_ee0, T_p, obst, r["width"], held, passive, None if x0 is None else np.asarray(x0)
+        c,
+        phi,
+        T_ee0,
+        T_p,
+        obst,
+        r["width"],
+        held,
+        passive,
+        None if x0 is None else np.asarray(x0),
     )
     out = {
         "accepted": ok,  # rho within tolerance; not "ok", which is the reply envelope's success flag
@@ -308,7 +364,9 @@ def targetpose(r):
 
 # execution (stages 17-20; the hardware executor omnimanip_ros execute): base-frame motion on the cuRobo sidecar
 def map_(r):
-    motion.map_scene(r["depth"], r["K"], r["T_base_cam"], r["q"], r.get("exclude"), r.get("plane"))
+    motion.map_scene(
+        r["depth"], r["K"], r["T_base_cam"], r["q"], r.get("exclude"), r.get("plane")
+    )
     return {}
 
 
@@ -330,8 +388,14 @@ def plan(r):
     if h is not None:
         s, T = _held_spheres(h["mesh_path"]), np.asarray(h["tool0_T_obj"], float)
         spheres = np.c_[s[:, :3] @ T[:3, :3].T + T[:3, 3], s[:, 3]]
-    path, rep = motion.plan(r["q"], r["goal"], spheres, r.get("q_goal_ref"), r.get("alternatives", 1))
-    return {"path": path, "reason": rep.get("reason", ""), "goal_failures": rep.get("goal_failures", [])}
+    path, rep = motion.plan(
+        r["q"], r["goal"], spheres, r.get("q_goal_ref"), r.get("alternatives", 1)
+    )
+    return {
+        "path": path,
+        "reason": rep.get("reason", ""),
+        "goal_failures": rep.get("goal_failures", []),
+    }
 
 
 def line(r):

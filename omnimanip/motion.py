@@ -58,15 +58,28 @@ def table_boxes(plane, T_base_cam):
     x = np.cross([0.0, 1, 0], n)
     x /= np.linalg.norm(x)
     R = np.c_[x, np.cross(n, x), n]
-    o = -(d / n[2]) * np.array([0, 0, 1.0]) - TABLE_THICK / 2 * n  # slab centre under the base origin
+    o = (
+        -(d / n[2]) * np.array([0, 0, 1.0]) - TABLE_THICK / 2 * n
+    )  # slab centre under the base origin
     a, h = TABLE_SIZE / 2, TABLE_HOLE / 2
     boxes = []
     for k, (cx, cy, sx, sy) in enumerate(
-        [((a + h) / 2, 0, a - h, 2 * a), (-(a + h) / 2, 0, a - h, 2 * a), (0, (a + h) / 2, 2 * h, a - h), (0, -(a + h) / 2, 2 * h, a - h)]
+        [
+            ((a + h) / 2, 0, a - h, 2 * a),
+            (-(a + h) / 2, 0, a - h, 2 * a),
+            (0, (a + h) / 2, 2 * h, a - h),
+            (0, -(a + h) / 2, 2 * h, a - h),
+        ]
     ):
         T = np.eye(4)
         T[:3, :3], T[:3, 3] = R, o + R @ [cx, cy, 0]
-        boxes.append({"name": f"table_{k}", "dims": [sx, sy, TABLE_THICK], "pose": T.astype(np.float32)})
+        boxes.append(
+            {
+                "name": f"table_{k}",
+                "dims": [sx, sy, TABLE_THICK],
+                "pose": T.astype(np.float32),
+            }
+        )
     return boxes
 
 
@@ -76,8 +89,16 @@ def map_scene(depth, K, T_base_cam, q, exclude=None, plane=None):
     model is reloaded (~3 s) only with a new image size: integrate loads it itself after a sidecar restart."""
     global _mapper_shape
     c = cli()
-    if depth.shape != _mapper_shape:  # the mapper's image size is fixed when built: follow the camera's profile
-        c.call({"cmd": "configure", "image_height": depth.shape[0], "image_width": depth.shape[1]})
+    if (
+        depth.shape != _mapper_shape
+    ):  # the mapper's image size is fixed when built: follow the camera's profile
+        c.call(
+            {
+                "cmd": "configure",
+                "image_height": depth.shape[0],
+                "image_width": depth.shape[1],
+            }
+        )
         c.call({"cmd": "load_robot"})  # its segmenter keeps the image size it first saw
         _mapper_shape = depth.shape
     c.call({"cmd": "reset"})

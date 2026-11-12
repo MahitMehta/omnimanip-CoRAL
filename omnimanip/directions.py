@@ -67,7 +67,9 @@ def render_candidates(mesh_can, cam_T_can, K, size):
             )
             scene.add(pyrender.Mesh.from_trimesh(mesh_can), pose=cam_T_can)
             scene.add(pyrender.Mesh.from_trimesh(arrow(c, d, L)), pose=cam_T_can)
-            cam = pyrender.IntrinsicsCamera(K[0, 0], K[1, 1], cx, cy, znear=0.01, zfar=10)
+            cam = pyrender.IntrinsicsCamera(
+                K[0, 0], K[1, 1], cx, cy, znear=0.01, zfar=10
+            )
             scene.add(cam, pose=CV_TO_GL)
             scene.add(pyrender.DirectionalLight(intensity=2.0), pose=CV_TO_GL)
             rendered = renderer.render(scene)

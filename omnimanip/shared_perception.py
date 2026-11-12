@@ -48,7 +48,9 @@ LOW_RES_TRELLIS = {
     "decimation_target": 100000,
     "texture_size": 1024,
 }
-GENERATE_LOCK = threading.Lock()  # TRELLIS.2 and Any6D share a GPU: one object at a time, even when registered at once
+GENERATE_LOCK = (
+    threading.Lock()
+)  # TRELLIS.2 and Any6D share a GPU: one object at a time, even when registered at once
 
 
 class Laps(dict):
@@ -371,7 +373,19 @@ def marks(
     return {mid: ms.load_mask(mid) for mid in ms.ids()}, arm, report
 
 
-def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True, cache_name=None, plane=None, low_res=False):
+def register(
+    mark_id,
+    rgb,
+    depth,
+    K,
+    mask,
+    arm,
+    out_dir,
+    decide=True,
+    cache_name=None,
+    plane=None,
+    low_res=False,
+):
     """run_scene step 3 for one mark: TRELLIS.2 canonical GLB -> Any6D metric final_mesh -> FoundationPose
     register on it with the re-rank + Orient Anything yaw decision (decide=False: the scorer's pick, as
     run_scene --no-decide). Copies final_mesh locally. With cache_name (and the table plane): the object's cached
@@ -383,18 +397,30 @@ def register(mark_id, rgb, depth, K, mask, arm, out_dir, decide=True, cache_name
         d, why = mesh_cache.lookup(cache_name, depth, K, mask > 0, plane)
         print(f"[mesh cache] {why}", flush=True)
         if d is not None:
-            rec = _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=d)
+            rec = _register_mesh(
+                mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=d
+            )
             iou = _fit_iou(rec, K, mask)
             if iou >= mesh_cache.MIN_IOU:
                 return {**rec, "mesh_cache": {"used": str(d), "iou": iou, "why": why}}
-            print(f"[mesh cache] {cache_name!r}: registered mesh overlaps the mask {iou:.2f} "
-                  f"(< {mesh_cache.MIN_IOU}): generating it afresh", flush=True)
-    rec = _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, low_res=low_res)
+            print(
+                f"[mesh cache] {cache_name!r}: registered mesh overlaps the mask {iou:.2f} "
+                f"(< {mesh_cache.MIN_IOU}): generating it afresh",
+                flush=True,
+            )
+    rec = _register_mesh(
+        mark_id, rgb, depth, K, mask, arm, out_dir, decide, low_res=low_res
+    )
     if cache_name and not low_res and mesh_cache.entry(cache_name) is None:
         iou = _fit_iou(rec, K, mask)
         if iou >= mesh_cache.MIN_IOU:
-            meta = mesh_cache.save(cache_name, rec["final_mesh"], rec["cam_T_obj"], plane, out_dir.name)
-            print(f"[mesh cache] saved {cache_name!r} from this run ({100 * meta['height_m']:.1f} cm tall)", flush=True)
+            meta = mesh_cache.save(
+                cache_name, rec["final_mesh"], rec["cam_T_obj"], plane, out_dir.name
+            )
+            print(
+                f"[mesh cache] saved {cache_name!r} from this run ({100 * meta['height_m']:.1f} cm tall)",
+                flush=True,
+            )
     return {**rec, "mesh_cache": {"used": None}} if cache_name else rec
 
 
@@ -406,7 +432,9 @@ def _fit_iou(rec, K, mask):
     return float((sil & m).sum() / max((sil | m).sum(), 1))
 
 
-def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=None, low_res=False):
+def _register_mesh(
+    mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=None, low_res=False
+):
     """register's pipeline for one mark; `cached` (a mesh_cache entry dir) replaces TRELLIS.2 + Any6D."""
     k = key(mark_id)
     dc = depth.copy()
@@ -467,19 +495,25 @@ def _register_mesh(mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=No
         "fp_scorer": np.asarray(rep["hypotheses"][0] if decide else rep["pose"], float),
         "final_mesh": str(local),
         "decision": dec,
-        "any6d": None if cached is not None else {
+        "any6d": None
+        if cached is not None
+        else {
             "cam_T_obj": np.asarray(a6["pose"], float),
             "extents": np.asarray(a6["extents"], float),
             "mesh": a6["mesh_path"],
         },
-        "trellis2": None if t2 is None else {"glb": t2["glb_path"], "gen_time": t2["gen_time"]},
+        "trellis2": None
+        if t2 is None
+        else {"glb": t2["glb_path"], "gen_time": t2["gen_time"]},
         "time_s": dict(laps),
     }
 
 
 def _generate(k, rgb, dc, K, m8, out_dir, laps, low_res=False):
     """TRELLIS.2 canonical GLB -> Any6D metric mesh. -> (trellis2 reply, any6d reply)."""
-    t2 = cli("trellis2_low_res" if low_res else "trellis2", 600).call(  # s: a lid took ~390 s, past the old 400 once queued
+    t2 = cli(
+        "trellis2_low_res" if low_res else "trellis2", 600
+    ).call(  # s: a lid took ~390 s, past the old 400 once queued
         {
             "op": "generate",
             "rgb": rgb,
@@ -515,7 +549,12 @@ def _copy_mesh(k, out_dir, mesh_path, cached):
     """The registered mesh with its texture, local in out_dir/objects/<k>/ (the cache entry's, or Any6D's).
     Any6D's per-object work dir holds the mesh with ITS texture; the top-level material_0.png is shared and
     overwritten by every object, so it can belong to a different mesh."""
-    local = out_dir / "objects" / k / (f"final_mesh_{k}.obj" if cached is not None else Path(mesh_path).name)
+    local = (
+        out_dir
+        / "objects"
+        / k
+        / (f"final_mesh_{k}.obj" if cached is not None else Path(mesh_path).name)
+    )
     local.parent.mkdir(parents=True, exist_ok=True)
     if cached is not None:
         shutil.copy(cached / "mesh.obj", local)

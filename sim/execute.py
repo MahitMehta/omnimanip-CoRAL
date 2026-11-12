@@ -99,7 +99,9 @@ meta = json.loads((Path(a.frame) / "meta.json").read_text())
 objects = json.loads((run / "objects.json").read_text())
 grasp = json.loads((run / "grasp" / "grasp.json").read_text())[0]
 stage = json.loads((run / "rrc" / "rrc.json").read_text())[0]
-plane = json.loads((run / "packet.json").read_text())["plane"]  # the table slab in cuRobo's map, as on the robot
+plane = json.loads((run / "packet.json").read_text())[
+    "plane"
+]  # the table slab in cuRobo's map, as on the robot
 c = {
     k: np.asarray(v) if isinstance(v, list) else v for k, v in stage["accepted"].items()
 }
@@ -346,8 +348,12 @@ motion.map_scene(depth0, meta["K"], B_C, q_cap, exclude=grown, plane=plane)
 Rc = np.eye(4)  # canonical -> body (the mesh is in the body frame)
 Rc[:3, :3] = np.array(objects[A]["canonical_frame"]["R_body_from_canon"])
 V, F = read_obj(Path(objects[A]["final_mesh"]))
-held_o9 = TP.held_model(objects[A]["final_mesh"], Rc[:3, :3])  # O9's L_collision: held and passive objects
-passive_o9 = TP.passive_model(objects[Pv]["final_mesh"], objects[Pv]["canonical_frame"]["R_body_from_canon"])
+held_o9 = TP.held_model(
+    objects[A]["final_mesh"], Rc[:3, :3]
+)  # O9's L_collision: held and passive objects
+passive_o9 = TP.passive_model(
+    objects[Pv]["final_mesh"], objects[Pv]["canonical_frame"]["R_body_from_canon"]
+)
 
 
 def approach(T_t, T_p):
