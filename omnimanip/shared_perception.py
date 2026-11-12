@@ -393,9 +393,11 @@ def register(
     LOW_RES_TRELLIS and never cache the result, so a full-resolution run can't reuse it.
     -> record {cam_T_obj, fp_scorer, final_mesh (local path), decision, any6d, trellis2, mesh_cache}."""
     k, out_dir = key(mark_id), Path(out_dir)
+    missed = None  # why the cached mesh wasn't used: the record's mesh_cache.why
     if cache_name:
         d, why = mesh_cache.lookup(cache_name, depth, K, mask > 0, plane)
         print(f"[mesh cache] {why}", flush=True)
+        missed = why
         if d is not None:
             rec = _register_mesh(
                 mark_id, rgb, depth, K, mask, arm, out_dir, decide, cached=d
@@ -403,9 +405,11 @@ def register(
             iou = _fit_iou(rec, K, mask)
             if iou >= mesh_cache.MIN_IOU:
                 return {**rec, "mesh_cache": {"used": str(d), "iou": iou, "why": why}}
+            missed = (
+                f"registered mesh overlaps the mask {iou:.2f} (< {mesh_cache.MIN_IOU})"
+            )
             print(
-                f"[mesh cache] {cache_name!r}: registered mesh overlaps the mask {iou:.2f} "
-                f"(< {mesh_cache.MIN_IOU}): generating it afresh",
+                f"[mesh cache] {cache_name!r}: {missed}: generating it afresh",
                 flush=True,
             )
     rec = _register_mesh(
@@ -421,7 +425,7 @@ def register(
                 f"[mesh cache] saved {cache_name!r} from this run ({100 * meta['height_m']:.1f} cm tall)",
                 flush=True,
             )
-    return {**rec, "mesh_cache": {"used": None}} if cache_name else rec
+    return {**rec, "mesh_cache": {"used": None, "why": missed}} if cache_name else rec
 
 
 def _fit_iou(rec, K, mask):

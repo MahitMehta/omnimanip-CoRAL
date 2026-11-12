@@ -374,8 +374,14 @@ def run(
     for o, reg, can in _parallel(register, jobs) if mesh_cache else map(register, jobs):
         _save(can.overlay, run / f"canonical_overlay_{o.name}.png")
         R = np.asarray(can.r_body_from_canon).reshape(3, 3)
+        rec = json.loads(reg.record_json)
+        mc = rec.get("mesh_cache")
+        if mc is not None and not mc["used"]:
+            node.get_logger().warn(
+                f"mesh cache: {o.name} not from the cache ({mc.get('why')}): generated with TRELLIS.2 + Any6D"
+            )
         objects[o.name] = {
-            **json.loads(reg.record_json),
+            **rec,
             "cam_T_can": conv.T_of(can.cam_t_can),
             "canonical_frame": json.loads(can.frame_json),
         }
