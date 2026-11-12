@@ -24,7 +24,7 @@ follow, or for dry runs on the UR driver's mock hardware and gripper-control's m
 Every motion stops at a gate first (Enter = go, anything else = stop; --gate first: only the first move of each
 phase), its path latched just before on /omnimanip/trajectory and its tool0 positions on /omnimanip/ee_path
 (nav_msgs/Path, base_link) for RViz. Ctrl-C during a motion cancels the trajectory goal; the e-stop stays with
-the operator. Writes <run>/exec.json, and records camera2's colour stream for the whole session plus 3 s to
+the operator. Writes <run>/exec.json (with every joint path sent, as motions), and records camera2's colour stream for the whole session plus 3 s to
 <run>/videos/exec_<start time>_camera2.webm (VP8; a new file per execute; none when camera2 isn't publishing).
 
     ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--controller scaled_joint_trajectory_controller]
@@ -181,6 +181,7 @@ class Executor(Node):
             {},
             [],
         )  # key -> when it went stale; what track_events records in exec.json
+        self.sent = []  # every joint path sent to the controller: exec.json's motions, for replays
         self.last_frame, self.call_t0 = None, None
         self.pose_cli = SidecarClient(POSE_ADDR, 30_000)
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10)
@@ -385,6 +386,7 @@ class Executor(Node):
         )
         if not gh.accepted:
             raise Stop("trajectory goal rejected")
+        self.sent.append({"t": round(time.time(), 2), "q": Q})
         return gh, gh.get_result_async(), Q
 
     def cancel(self, motion):
@@ -907,6 +909,7 @@ def main():
         log["status"] = "interrupted"
     finally:
         log["track_events"] = node.events
+        log["motions"] = node.sent
         time.sleep(REC_TAIL)
         log["video"] = rec.close()
         (Path(a.run) / "exec.json").write_text(
