@@ -493,7 +493,10 @@ def targetpose(r, a):
             np.array(g["phi_grasp_T_obj"]),
             r.T(Pv),
         )
-        T_ee, terms, ok = TP.solve(c, phi, T_ee0, T_p, obst, g["width"])
+        oa, op = r.objects[A], r.objects[Pv]
+        held = TP.held_model(oa["final_mesh"], oa["canonical_frame"]["R_body_from_canon"])
+        passive = TP.passive_model(op["final_mesh"], op["canonical_frame"]["R_body_from_canon"])
+        T_ee, terms, ok = TP.solve(c, phi, T_ee0, T_p, obst, g["width"], held, passive)
         print(
             f"{st['action']}: {'OK' if ok else 'FAILED (rho above tolerance)'} | terms "
             + ", ".join(f"{k} {v:.4f}" for k, v in terms.items())

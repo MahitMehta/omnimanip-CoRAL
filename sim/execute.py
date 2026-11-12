@@ -346,6 +346,8 @@ motion.map_scene(depth0, meta["K"], B_C, q_cap, exclude=grown, plane=plane)
 Rc = np.eye(4)  # canonical -> body (the mesh is in the body frame)
 Rc[:3, :3] = np.array(objects[A]["canonical_frame"]["R_body_from_canon"])
 V, F = read_obj(Path(objects[A]["final_mesh"]))
+held_o9 = TP.held_model(objects[A]["final_mesh"], Rc[:3, :3])  # O9's L_collision: held and passive objects
+passive_o9 = TP.passive_model(objects[Pv]["final_mesh"], objects[Pv]["canonical_frame"]["R_body_from_canon"])
 
 
 def approach(T_t, T_p):
@@ -373,7 +375,7 @@ for it in range(200):
     if solving:  # O9 on this tracker update: Phi from the tracked active pose, warm-started at the last target
         phi = np.linalg.inv(T_e) @ T_a
         T_t, terms, ok = TP.solve(
-            c, phi, T_start, T_p, obst, grasp["width"], x0_pose=T_t
+            c, phi, T_start, T_p, obst, grasp["width"], held_o9, passive_o9, x0_pose=T_t
         )
         solving = np.linalg.norm(T_t[:3, 3] - T_e[:3, 3]) > RESOLVE_STOP
         log[ACT]["updates"].append(

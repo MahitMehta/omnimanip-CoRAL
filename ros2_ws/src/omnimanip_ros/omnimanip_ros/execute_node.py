@@ -607,6 +607,8 @@ def run(node, a, log):
                     cam_T_ee_start=T_start,
                     cam_T_passive=T_p,
                     width=grasp["width"],
+                    active={"mesh_path": mesh, "R": Rc[A]},  # O9's L_collision: held and passive objects
+                    passive={"mesh_path": objects[Pv]["final_mesh"], "R": Rc[Pv]},
                     x0=T_t,
                     overlay=False,
                 )

@@ -13,7 +13,6 @@ import json
 import os
 import threading
 import traceback
-from functools import cache
 from pathlib import Path
 
 import cv2
@@ -276,8 +275,10 @@ def targetpose(r):
     )
     obst = TP.obstacles(r["depth"], r["K"], np.asarray(r["obstacle_exclude"]) > 0)
     x0 = r.get("x0")  # executor: warm start at the previous tracker update's target
+    a, p = r["active"], r["passive"]
+    held, passive = TP.held_model(a["mesh_path"], a["R"]), TP.passive_model(p["mesh_path"], p["R"])
     T_ee, terms, ok = TP.solve(
-        c, phi, T_ee0, T_p, obst, r["width"], None if x0 is None else np.asarray(x0)
+        c, phi, T_ee0, T_p, obst, r["width"], held, passive, None if x0 is None else np.asarray(x0)
     )
     out = {
         "accepted": ok,  # rho within tolerance; not "ok", which is the reply envelope's success flag
@@ -287,7 +288,6 @@ def targetpose(r):
     }
     if not r.get("overlay", True):  # the executor's per-update re-solves
         return out
-    a, p = r["active"], r["passive"]
     return {
         **out,
         "overlay": TP.overlay(
@@ -312,12 +312,10 @@ def map_(r):
     return {}
 
 
-@cache
 def _held_spheres(mesh_path):
-    """The held object's covering spheres in its own frame, fitted once per mesh: reading a TRELLIS mesh and
-    fitting them takes ~4 s, and the fit doesn't depend on where the object is, so each plan only moves them."""
-    V, F = S.read_obj(Path(mesh_path))
-    return motion.attached_spheres(V, F, np.eye(4))
+    """The held object's covering spheres in its own frame, fitted once per mesh (shared with O9's L_collision):
+    the fit doesn't depend on where the object is, so each plan only moves them."""
+    return TP.body_spheres(mesh_path)
 
 
 def fit_held(r):
