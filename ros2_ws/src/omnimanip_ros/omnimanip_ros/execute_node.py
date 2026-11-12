@@ -24,7 +24,8 @@ follow, or for dry runs on the UR driver's mock hardware and gripper-control's m
 Every motion stops at a gate first (Enter = go, anything else = stop; --gate first: only the first move of each
 phase), its path latched just before on /omnimanip/trajectory and its tool0 positions on /omnimanip/ee_path
 (nav_msgs/Path, base_link) for RViz. Ctrl-C during a motion cancels the trajectory goal; the e-stop stays with
-the operator. Writes <run>/exec.json (with every joint path sent, as motions), and records camera 1's (the planning camera's) colour stream for the whole session plus 3 s
+the operator. Writes <run>/exec.json (with every joint path sent, as motions; /joint_states at 30 Hz, as joints; and the video's
+first frame time, as video_t0, so frames can be matched to arm poses), and records camera 1's (the planning camera's) colour stream for the whole session plus 3 s
 to <run>/videos/exec_<start time>_camera1.webm (VP8; a new file per execute; none when it isn't publishing).
 
     ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--controller scaled_joint_trajectory_controller]
@@ -97,6 +98,8 @@ REC_TOPIC, REC_FPS = (
 )  # session video: the planning camera (camera 1), JPEG frames
 REC_TAIL = 3.0  # s recorded after the session ends: gripper-control's result can return before the fingers move
 TRACK_SLOW = 1.0  # s: a longer gap between synced frames, or track call, is logged
+# s: /joint_states logged to exec.json's joints at this spacing, to match video frames to arm poses
+JOINT_LOG_DT = 1 / 30
 JOINT_HISTORY = 2000  # /joint_states samples kept, to pair a tracked pose with the joints at its frame's arrival
 CANCEL_WAIT, SETTLE_TOL = (
     2.0,
@@ -118,6 +121,7 @@ class Recorder:
             0,
             threading.Lock(),
         )
+        self.t0_local = None  # local clock at the first frame (t0 is the camera's stamp: another machine's clock)
         self.closed = False
         self.sub = node.create_subscription(
             CompressedImage,
@@ -147,7 +151,7 @@ class Recorder:
                     REC_FPS,
                     (im.shape[1], im.shape[0]),
                 )
-                self.t0 = t
+                self.t0, self.t0_local = t, time.time()
             for _ in range(min(int((t - self.t0) * REC_FPS) + 1 - self.n, REC_FPS)):
                 self.w.write(im)
                 self.n += 1
@@ -182,6 +186,7 @@ class Executor(Node):
             [],
         )  # key -> when it went stale; what track_events records in exec.json
         self.sent = []  # every joint path sent to the controller: exec.json's motions, for replays
+        self.q_log = []  # (local receive time, q) every JOINT_LOG_DT: exec.json's joints
         self.last_frame, self.call_t0 = None, None
         self.pose_cli = SidecarClient(POSE_ADDR, 30_000)
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10)
@@ -227,6 +232,11 @@ class Executor(Node):
                     [msg.position[list(msg.name).index(n)] for n in UR_JOINTS]
                 )
                 self.q_hist.append((time.time(), self.q))
+                if (
+                    not self.q_log
+                    or self.q_hist[-1][0] - self.q_log[-1][0] >= JOINT_LOG_DT
+                ):
+                    self.q_log.append(self.q_hist[-1])
 
     def _on_info(self, msg):
         self.info = msg
@@ -912,6 +922,12 @@ def main():
         log["motions"] = node.sent
         time.sleep(REC_TAIL)
         log["video"] = rec.close()
+        log["joints"] = {
+            "t": [t for t, _ in node.q_log],
+            "q": [q for _, q in node.q_log],
+        }  # local receive time, UR order
+        # video frame k is at t0_stamp + k / fps on the camera's clock; t0_local is when frame 0 arrived here
+        log["video_t0"] = {"stamp": rec.t0, "local": rec.t0_local, "fps": REC_FPS}
         (Path(a.run) / "exec.json").write_text(
             json.dumps(
                 log,
