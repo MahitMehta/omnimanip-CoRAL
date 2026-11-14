@@ -147,11 +147,21 @@ def attached_spheres(V, F, tool0_T_obj, margin=0.0, n_samples=12000, seed=0):
     return np.c_[c @ tool0_T_obj[:3, :3].T + tool0_T_obj[:3, 3], r + margin]
 
 
-def plan(q, base_T_tool0_goal, spheres=None, q_goal_ref=None, alternatives=1):
+PLANNERS = ("curobo", "rrt")
+RRT_ANY_GOALS = 16  # rrt without q_goal_ref (cuRobo's "choose its own IK solution"): distinct IK solutions tried
+
+
+def plan(q, base_T_tool0_goal, spheres=None, q_goal_ref=None, alternatives=1, planner="curobo"):
     """Joint trajectory (n, 6; UR order) from q to the tool0 goal, collision-free against the mapped scene and,
     with `spheres`, carrying them. With `q_goal_ref` (UR order) the goal is the IK solution nearest it, so replans
     stay on one arm configuration instead of swinging between IK branches; with `alternatives` > 1, up to that many
-    distinct IK solutions are tried, nearest first (the reply's goal_failures: those that failed). -> (path or None, reply)."""
+    distinct IK solutions are tried, nearest first (the reply's goal_failures: those that failed). `planner`:
+    "curobo" (its MotionPlanner) or "rrt" (our RRT-Connect, omnimanip/rrt.py, on cuRobo's goals and collision
+    checks; without q_goal_ref, up to RRT_ANY_GOALS IK solutions nearest q). -> (path or None, reply)."""
+    if planner == "rrt":
+        return _plan_rrt(q, base_T_tool0_goal, spheres, q_goal_ref, alternatives)
+    if planner != "curobo":
+        raise ValueError(f"planner {planner!r}: one of {PLANNERS}")
     msg = {
         "cmd": "plan",
         "q": [float(v) for v in q],
@@ -168,6 +178,39 @@ def plan(q, base_T_tool0_goal, spheres=None, q_goal_ref=None, alternatives=1):
         return None, {**rep, "reason": rep.get("error", "")}
     order = [list(rep["joint_names"]).index(n) for n in UR_JOINTS]
     return np.asarray(rep["positions"], float)[:, order], rep
+
+
+def _plan_rrt(q, base_T_tool0_goal, spheres, q_goal_ref, alternatives):
+    from . import rrt
+
+    c = cli(180)
+    if q_goal_ref is None:
+        q_goal_ref, alternatives = q, RRT_ANY_GOALS
+    rep = c.call(  # refreshes the sidecar's ESDF and attaches the held object for IK
+        {
+            "cmd": "goals",
+            "q": [float(v) for v in q],
+            "joint_names": UR_JOINTS,
+            "T_base_goal": np.asarray(base_T_tool0_goal, np.float32),
+            "attached_spheres": None if spheres is None else np.asarray(spheres, np.float32),
+            "q_goal_ref": [float(v) for v in q_goal_ref],
+            "q_goal_alternatives": int(alternatives),
+        }
+    )
+    if not rep.get("success"):
+        return None, {**rep, "reason": rep.get("error", ""), "goal_failures": []}
+    order = [list(rep["joint_names"]).index(n) for n in UR_JOINTS]
+    goals = np.asarray(rep["goals"], float)[:, order]
+    first = [True]
+
+    def collides(Q):
+        msg = {"cmd": "check", "Q": np.asarray(Q, np.float32), "joint_names": UR_JOINTS}
+        if first[0]:  # the checker keeps the held object between calls
+            msg["attached_spheres"] = None if spheres is None else np.asarray(spheres, np.float32)
+            first[0] = False
+        return np.asarray(c.call(msg)["collides"], bool)
+
+    return rrt.plan(q, goals, collides)
 
 
 @cache

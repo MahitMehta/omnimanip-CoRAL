@@ -251,6 +251,7 @@ class Bridge(Node):
             top_down_deg=float(req.top_down_deg),
             ideal_grasp=bool(req.ideal_grasp),
             allow_no_pick=bool(req.allow_no_pick),
+            planner=req.planner or "curobo",
         )
         res.cam_t_grasp, res.grasp_t_obj = (
             conv.pose_of(r["cam_T_grasp"]),

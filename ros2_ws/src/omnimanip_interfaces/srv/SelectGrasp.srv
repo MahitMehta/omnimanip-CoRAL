@@ -10,6 +10,7 @@ float64[6] q                         # capture joints, UR order: reachability
 float64 top_down_deg                 # > 0: AnyGrasp approaches within this angle of straight down the table's normal
 bool ideal_grasp                     # use the object's hand-set grasp (grasp.IDEAL_GRASPS) if its name has one
 bool allow_no_pick                   # no grasp left to pick: reply with index -1 and the candidates, not a failure
+string planner                       # reachability's planner: "curobo" (also when empty) or "rrt" (motion.plan)
 ---
 bool success
 string message

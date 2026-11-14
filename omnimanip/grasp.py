@@ -188,9 +188,9 @@ def ideal_grasp(name, mesh_path, cam_T_obj):
     }
 
 
-def reaches(rep, i, T_base_cam, q):
-    """Whether cuRobo plans to grasp i's pre-grasp from joints q (UR order) in the mapped scene, trying PRE_GRASPS in
-    order as execute does."""
+def reaches(rep, i, T_base_cam, q, planner="curobo"):
+    """Whether `planner` (motion.plan) plans to grasp i's pre-grasp from joints q (UR order) in the mapped scene,
+    trying PRE_GRASPS in order as execute does."""
     from . import motion
 
     T = T_base_cam @ pose(rep, i)
@@ -199,7 +199,9 @@ def reaches(rep, i, T_base_cam, q):
         T_pre = T.copy()
         T_pre[:3, 3] -= pre * T[:3, 0]
         if (
-            motion.plan(q, T_pre @ np.linalg.inv(tool0_T_g), None, list(q))[0]
+            motion.plan(
+                q, T_pre @ np.linalg.inv(tool0_T_g), None, list(q), planner=planner
+            )[0]
             is not None
         ):
             return True
@@ -260,10 +262,10 @@ def choose(rep, cam_T_can, grasp_points_can, ok=None):
 
 
 def choose_reachable(
-    rep, cam_T_can, grasp_points_can, ok, depth, K, T_base_cam, q, plane
+    rep, cam_T_can, grasp_points_can, ok, depth, K, T_base_cam, q, plane, planner="curobo"
 ):
-    """choose()'s pick that cuRobo can reach, best first: a refused grasp leaves the `ok` pool and the next pick is
-    tried, against the frame's depth and the table slab. -> (choose()'s result or None, picks tried)."""
+    """choose()'s pick that `planner` can reach, best first: a refused grasp leaves the `ok` pool and the next pick
+    is tried, against the frame's depth and the table slab. -> (choose()'s result or None, picks tried)."""
     from . import motion
 
     motion.map_scene(depth, K, T_base_cam, q, plane=plane)
@@ -271,7 +273,7 @@ def choose_reachable(
     while ok.any():
         picked = choose(rep, cam_T_can, grasp_points_can, ok)
         tried += 1
-        if reaches(rep, picked[0], T_base_cam, q):
+        if reaches(rep, picked[0], T_base_cam, q, planner):
             return picked, tried
         ok[picked[0]] = False
     return None, tried

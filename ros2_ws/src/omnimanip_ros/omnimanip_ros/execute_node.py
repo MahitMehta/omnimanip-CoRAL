@@ -28,7 +28,10 @@ the operator. Writes <run>/exec.json (with every joint path sent, as motions; /j
 first frame time, as video_t0, so frames can be matched to arm poses), and records camera 1's (the planning camera's) colour stream for the whole session plus 3 s
 to <run>/videos/exec_<start time>_camera1.webm (VP8; a new file per execute; none when it isn't publishing).
 
-    ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--controller scaled_joint_trajectory_controller]
+--planner curobo|rrt: cuRobo's MotionPlanner, or our RRT-Connect (omnimanip/rrt.py) on cuRobo's goal IK and collision
+checks; by default the one run_task's grasp reach check used (grasp/grasp.json; cuRobo for older runs).
+
+    ros2 run omnimanip_ros execute --run $RUNS_DIR/<stamp> [--speed 0.1] [--planner rrt] [--controller scaled_joint_trajectory_controller]
 """
 
 import argparse
@@ -504,6 +507,15 @@ def run(node, a, log):
     if stage is None:
         raise Stop("RRC accepted no constraint in this run: nothing to execute")
     grasp = json.loads((run / "grasp" / "grasp.json").read_text())[0]
+    used = grasp.get("planner", "curobo")  # run_task's reach check (runs before --planner: cuRobo)
+    if a.planner is None:
+        a.planner = used
+    elif a.planner != used:
+        print(
+            f"exec: WARNING: --planner {a.planner}, but run_task checked the grasp's reach with {used}"
+        )
+    log["planner"] = {"execute": a.planner, "run_task": used}
+    print(f"exec: planner {a.planner}")
     packet = json.loads((run / "packet.json").read_text())
     c = {
         k: np.asarray(v) if isinstance(v, list) else v
@@ -529,7 +541,11 @@ def run(node, a, log):
         for n, o in objects.items()
     }
     omni = SidecarClient(OMNI_ADDR, 300_000)
-    call = lambda cmd, **kw: omni.call({"cmd": cmd, **kw})
+
+    def call(cmd, **kw):
+        if cmd == "plan":
+            kw["planner"] = a.planner
+        return omni.call({"cmd": cmd, **kw})
 
     TG = np.asarray(
         call("kinematics", q=list(q_cap), depth=grasp["depth"])["tool0_T_grasp"], float
@@ -570,7 +586,7 @@ def run(node, a, log):
     timing = {}
 
     def planned(what, goal, first, fallback=False, then_line=None, **kw):
-        """cuRobo plan to goal, gated. With then_line (a tool0 goal), a plan from whose end the straight move there
+        """Plan to goal (--planner), gated. With then_line (a tool0 goal), a plan from whose end the straight move there
         is refused counts as failed, before the gate."""
         t0 = time.time()
         r = call("plan", q=list(node.joints()), goal=goal, **kw)
@@ -580,12 +596,14 @@ def run(node, a, log):
         for why in failures:
             print(f"exec: {what}: {why}")
         chose = r["path"] is None and fallback
-        if chose:  # same tool goal, but cuRobo chooses the joint angles
+        if chose:  # same tool goal, but cuRobo chooses the joint angles (rrt: any of its IK solutions)
             kw.pop("q_goal_ref")
             kw.pop("alternatives")
             r = call("plan", q=list(node.joints()), goal=goal, **kw)
             what += (
                 ", to cuRobo's own IK solution, not the nearest: check the arm's motion"
+                if a.planner == "curobo"
+                else ", to an IK solution past the nearest ones: check the arm's motion"
             )
         elif failures:
             what += f", to the IK solution {len(failures) + 1} by distance, not the nearest: check the arm's motion"
@@ -893,6 +911,13 @@ def main():
     )
     ap.add_argument("--controller", default="scaled_joint_trajectory_controller")
     ap.add_argument("--gate", choices=("all", "first", "none"), default="all")
+    ap.add_argument(
+        "--planner",
+        choices=("curobo", "rrt"),
+        default=None,
+        help="motion planner (omnimanip/motion.py): cuRobo's MotionPlanner or our RRT-Connect on cuRobo's collision "
+        "checks; default: the one run_task's grasp reach check used (grasp/grasp.json)",
+    )
     ap.add_argument(
         "--no-tracking",
         action="store_true",

@@ -161,6 +161,7 @@ def _select_grasps(
     top_down_deg,
     ideal_grasp,
     allow_no_pick=False,
+    planner="curobo",
 ):
     """15 for every grasp stage's object: writes grasp/ (picked grasps only) -> {object: SelectGrasp reply}."""
     grasps = {}
@@ -190,6 +191,7 @@ def _select_grasps(
             top_down_deg=top_down_deg,
             ideal_grasp=ideal_grasp,
             allow_no_pick=allow_no_pick,
+            planner=planner,
         )
         _save(g.overlay, run / "grasp" / f"grasp_overlay_{name}.png")
         grasps[name] = g
@@ -205,6 +207,7 @@ def _select_grasps(
                 "depth": g.depth,
                 "cam_T_grasp": conv.T_of(g.cam_t_grasp),
                 "phi_grasp_T_obj": conv.T_of(g.grasp_t_obj),
+                "planner": planner,  # the reach check's; execute plans with it unless told otherwise
             }
             for n, g in grasps.items()
             if g.index >= 0
@@ -286,6 +289,7 @@ def run(
     ideal_grasp=False,
     grasps_only=False,
     low_res_mesh=False,
+    planner="curobo",
 ):
     for d in (
         "marks",
@@ -487,6 +491,7 @@ def run(
             top_down_deg,
             ideal_grasp,
             allow_no_pick=True,
+            planner=planner,
         )
         if not grasps:
             raise RuntimeError(
@@ -594,6 +599,7 @@ def run(
         run,
         top_down_deg,
         ideal_grasp,
+        planner=planner,
     )
 
     # 16 target pose (stages with an accepted constraint)
@@ -679,6 +685,13 @@ def main():
         action="store_true",
         help="stop after the grasp stage and publish the proposed, filtered and chosen grasps for RViz (see the module docstring)",
     )
+    ap.add_argument(
+        "--planner",
+        choices=("curobo", "rrt"),
+        default="curobo",
+        help="motion planner for the grasp reach check, recorded in grasp/grasp.json for execute: cuRobo's "
+        "MotionPlanner, or our RRT-Connect on cuRobo's collision checks (omnimanip/rrt.py)",
+    )
     a, ros_args = ap.parse_known_args()
     a.mesh_cache = a.mesh_cache or a.low_res_mesh
     if a.ideal_grasp and not a.mesh_cache:
@@ -690,6 +703,13 @@ def main():
         if a.resume
         else Path(a.out) / datetime.now().strftime("%Y%m%d_%H%M%S")
     )
+    saved = out / "grasp" / "grasp.json"
+    if a.resume and saved.exists():  # a replayed grasp reply was checked with the planner that run used
+        used = {g.get("planner", "curobo") for g in json.loads(saved.read_text())}
+        if used and used != {a.planner}:
+            ap.error(
+                f"this run's grasps were checked with --planner {used.pop()}: resume with that"
+            )
     (out / "calls").mkdir(parents=True, exist_ok=True)
     rclpy.init(args=ros_args)
     node = Runner(out / "calls")
@@ -708,6 +728,7 @@ def main():
             ideal_grasp=a.ideal_grasp,
             grasps_only=a.grasps_only,
             low_res_mesh=a.low_res_mesh,
+            planner=a.planner,
         )
         if a.grasps_only:
             node.get_logger().info(

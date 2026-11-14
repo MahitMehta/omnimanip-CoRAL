@@ -269,6 +269,7 @@ def grasp(r):
         r["base_T_cam"],
         r["q"],
         r["table_plane"],
+        r.get("planner") or "curobo",
     )
     why = (
         "no grasp left to pick: "
@@ -383,13 +384,19 @@ def fit_held(r):
 
 
 def plan(r):
-    """cuRobo plan to a tool0 goal; with "held" ({mesh_path, tool0_T_obj}) the object rides on tool0 as spheres."""
+    """Plan to a tool0 goal ("planner": "curobo" or "rrt", motion.plan); with "held" ({mesh_path, tool0_T_obj}) the
+    object rides on tool0 as spheres."""
     h, spheres = r.get("held"), None
     if h is not None:
         s, T = _held_spheres(h["mesh_path"]), np.asarray(h["tool0_T_obj"], float)
         spheres = np.c_[s[:, :3] @ T[:3, :3].T + T[:3, 3], s[:, 3]]
     path, rep = motion.plan(
-        r["q"], r["goal"], spheres, r.get("q_goal_ref"), r.get("alternatives", 1)
+        r["q"],
+        r["goal"],
+        spheres,
+        r.get("q_goal_ref"),
+        r.get("alternatives", 1),
+        r.get("planner", "curobo"),
     )
     return {
         "path": path,
