@@ -185,10 +185,12 @@ def preview(d, a):
     ik = C.IK(q)
     sub = SubgoalSolver(cfg["subgoal_solver"], ik, q)
     path = PathSolver(cfg["path_solver"], ik, q)
-    kps, groups = np.array(kp["positions"], float), np.array(kp["groups"])
-    state = {"held": -1}  # the held rigid group (SAM mask index), -1 = none
+    kps, px = np.array(kp["positions"], float), np.array(kp["pixels"])
+    # the held object's mask: keypoints whose pixel lies in it ride with the end effector (rekep/DEVIATIONS.md)
+    state = {"held": np.zeros_like(rmask)}
+    on_held = lambda: state["held"][px[:, 0], px[:, 1]]
     grasp_cost = lambda i: float(
-        groups[i] != state["held"]
+        not on_held()[i]
     )  # utils.get_callable_grasping_cost_fn
     fns = {
         s: {
@@ -210,10 +212,9 @@ def preview(d, a):
             meta["grasp_keypoints"][s - 1] != -1,
             meta["release_keypoints"][s - 1] != -1,
         )
-        movable = np.r_[True, groups == state["held"]]
+        movable = np.r_[True, on_held()]
         keys = np.vstack([pose[:3], kps])
-        held_mask = masks[state["held"]] if state["held"] >= 0 else np.zeros_like(rmask)
-        scene = P[(depth > 0) & ~rmask & ~held_mask]
+        scene = P[(depth > 0) & ~rmask & ~state["held"]]
         sdf = C.sdf_voxels(scene, lo, hi, cfg["main"]["sdf_voxel_size"])
         cpts = np.vstack([C.gripper_points(pose), held_pts])
         goal, gd = sub.solve(
@@ -269,8 +270,8 @@ def preview(d, a):
             cv2.circle(img, (int(x), int(y)), 1, color, -1)
         # execute: the held object's keypoints and points ride with the end effector
         D = C.mat(goal) @ np.linalg.inv(C.mat(pose))
-        if state["held"] >= 0:
-            m = groups == state["held"]
+        if state["held"].any():
+            m = on_held()
             kps[m] = kps[m] @ D[:3, :3].T + D[:3, 3]
             held_pts = held_pts @ D[:3, :3].T + D[:3, 3]
         pose, q = goal, ik.solve(C.mat(goal), 100, q).cspace_position
@@ -282,10 +283,14 @@ def preview(d, a):
                 0,
             ]
             q = ik.solve(C.mat(pose), 100, q).cspace_position
-            state["held"] = int(groups[meta["grasp_keypoints"][s - 1]])
-            held_pts = P[masks[state["held"]] & (depth > 0)]
+            state["held"] = C.object_mask(
+                masks,
+                px[meta["grasp_keypoints"][s - 1]],
+                cfg["keypoint_proposer"]["max_mask_ratio"],
+            )
+            held_pts = P[state["held"] & (depth > 0)]
         if is_release:
-            state["held"], held_pts = -1, np.zeros((0, 3))
+            state["held"], held_pts = np.zeros_like(rmask), np.zeros((0, 3))
     save(img, d / "preview.png")
     dump(report, d / "preview.json")
 
