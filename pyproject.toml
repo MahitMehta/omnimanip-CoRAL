@@ -22,7 +22,7 @@ dependencies = [
     "rosbags",
     "scikit-learn>=1.9.1",
     "scipy",
-    "torch>=2.15.0",
+    "torch>=2.14",
     "trimesh",
 ]
 
@@ -41,3 +41,12 @@ extend-exclude = ["third_party"]
 exclude = ["third_party", ".venv", "rekep/sam_server.py"]  # sam_server.py runs in its SAM container
 venvPath = "."
 venv = ".venv"
+
+# CoRAL's driver (535) supports CUDA <= 12.2: on Linux take torch built for CUDA 12.6 (12.x minor-version compatible)
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
