@@ -212,7 +212,7 @@ def preview(d, a):
         )
         movable = np.r_[True, groups == state["held"]]
         keys = np.vstack([pose[:3], kps])
-        held_mask = masks[state["held"]] if state["held"] >= 0 else False
+        held_mask = masks[state["held"]] if state["held"] >= 0 else np.zeros_like(rmask)
         scene = P[(depth > 0) & ~rmask & ~held_mask]
         sdf = C.sdf_voxels(scene, lo, hi, cfg["main"]["sdf_voxel_size"])
         cpts = np.vstack([C.gripper_points(pose), held_pts])
