@@ -10,7 +10,8 @@ dependencies = [
     "msgpack-numpy",
     "numba>=0.68.1",
     "numpy",
-    "open3d>=0.20.0",
+    "open3d>=0.20.0; sys_platform == 'darwin'",
+    "open3d==0.19.*; sys_platform == 'linux'",  # CoRAL is Ubuntu 20.04 (glibc 2.31): 0.20 needs 2.35
     "opencv-python-headless",
     "parse>=1.22.4",
     "pillow",
