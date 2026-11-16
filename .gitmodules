@@ -6,3 +6,6 @@
 	path = third_party/ur5e-manip-sim
 	url = https://github.com/albus-fang-research-engineer/ur5e-manip-sim
 	branch = insert-marker
+[submodule "third_party/ReKep"]
+	path = third_party/ReKep
+	url = https://github.com/huangwl18/ReKep

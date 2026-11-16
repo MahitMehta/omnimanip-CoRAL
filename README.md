@@ -4,6 +4,7 @@ A reimplementation of [OmniManip](https://arxiv.org/abs/2501.03841) on a UR5e wi
 
 - [Pipeline](#pipeline) below: one line per stage; `sim/PIPELINE.md` for sim.
 - `DEVIATIONS.md`: every departure from the paper (real pipeline only, not sim).
+- [ReKep pipeline](#rekep-pipeline): a second baseline, [ReKep](https://arxiv.org/abs/2409.01652), on the same robot; `rekep/DEVIATIONS.md` for its departures from its paper.
 
 ## Layout
 
@@ -13,7 +14,8 @@ A reimplementation of [OmniManip](https://arxiv.org/abs/2501.03841) on a UR5e wi
 | `ros2_ws/` | `omnimanip_interfaces` (typed services) + `omnimanip_ros` (`bridge`, `run_task`, `execute`), docker compose for CoRAL |
 | `sim/` | MuJoCo capture + execution on Albus's ur5e-manip-sim (own venv) |
 | `assets/` | robot URDF |
-| `third_party/` | Albus's repos (git submodules, pinned) |
+| `rekep/` | ReKep: adapters for its released modules (`core.py`), offline runner (`run.py`), its solvers set to the paper's values (`paper.patch`), SAM server (`sam_server.py`) |
+| `third_party/` | Albus's repos and ReKep's (git submodules, pinned) |
 
 ## Pipeline
 
@@ -42,6 +44,15 @@ Execution (O10), stages 17–20, runs the grasp and then the first interaction s
 18. **Interaction primitive**: one collision-free planned move of the gripper, carrying the held object, to the O9 target pose, held there (pour); place instead goes to max(|d|, 4 cm) before the target along the passive axis, then straight in (not collision-checked), and opens.
 19. **Closed-loop tracking**: FoundationPose tracks the active and passive objects on live frames, and O9 is re-solved on every update (Φ re-measured from the tracked active object) while the arm moves, until the gripper is within 2 cm of the target. When the target moves 2 cm / 5° from the plan's, a re-plan is tried without stopping; only if it succeeds does the arm stop and re-plan from rest (on the robot; in sim the same thresholds apply between 8-waypoint chunks). A solve over the ρ tolerance is never moved to: the stage stops if it is the first, and otherwise the current path carries on. With no fresh pose it warns and goes on: the held object rides on the gripper at its last measured Φ, the other stays at its last pose, until tracking returns (`track_events` in `exec.json`).
 20. **Motion** (`omnimanip/motion.py`): cuRobo maps the planning frame's depth (robot masked out) and attaches the held object as covering spheres fitted to its mesh. Its MotionPlanner plans a collision-free joint path (5 mm buffer) to each pose, on our own cuRobo container. The goal is the IK solution nearest the current branch, with joints wrapped the short way round. A stage's first plan tries up to 5 distinct IK solutions, nearest first, then lets cuRobo choose one for the same tool goal; a replan only tries the nearest. With `--planner rrt` (`run_task`, for the grasp reach check too; `execute` defaults to the run's), our RRT-Connect (`omnimanip/rrt.py`) plans in joint space to the same IK solutions instead (16 nearest in place of cuRobo's choice), every edge checked each 0.01 rad by cuRobo's sphere test against the same map (a sphere touching the scene, or self-collision: cuRobo's own goals and paths come inside its 5 mm buffer), then greedily pruned and shortcut.
+
+## ReKep pipeline
+
+ReKep (arXiv 2409.01652) through its own released modules (`third_party/ReKep` @ 63c43fd with `rekep/paper.patch`), as `rekep.run` stages: `capture` → `keypoints` → `program` → `preview`. Offline only so far; tracking and execution are not built yet.
+
+1. **Capture** (`capture`): the frame packet as OmniManip's stage 1, then every mask in the image from SAM v1's automatic mask generator (ViT-H, its defaults) on `SamServer-mahit` (CoRAL, GPU 0, port 5683).
+2. **Keypoints** (`keypoints`): ReKep's proposer on each SAM mask: DINOv2 ViT-S14 (registers) features, PCA to 3, k-means k = 5 per mask, workspace filter, Mean Shift at 8 cm; each keypoint keeps its mask as its rigid group; numbered on `keypoints.png`.
+3. **Program** (`program`): Gemini (minimal thinking) fills ReKep's released prompt template with `keypoints.png`; its parser writes each stage's sub-goal and path constraint functions and the grasp and release keypoints to `program/`.
+4. **Preview** (`preview`): ReKep's sub-goal and path solvers (dual annealing + SLSQP) run stage by stage on the captured frame, open loop (the held mask's keypoints ride with the end effector), against an SDF from the frame's depth and our IK; each stage's path and sub-goal gripper drawn on `preview.png`.
 
 ## Setup
 

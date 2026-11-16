@@ -1,0 +1,170 @@
+diff --git a/path_solver.py b/path_solver.py
+index 1ffb667..c8dd9d8 100644
+--- a/path_solver.py
++++ b/path_solver.py
+@@ -14,6 +14,8 @@ from utils import (
+     calculate_collision_cost,
+     path_length,
+     transform_keypoints,
++    batch_transform_points,
++    consistency,
+ )
+ 
+ # ====================================
+@@ -33,6 +35,8 @@ def objective(opt_vars,
+                 ik_solver,
+                 initial_joint_pos,
+                 reset_joint_pos,
++                table_z,
++                prev_poses_homo,
+                 return_debug_dict=False):
+ 
+     debug_dict = {}
+@@ -47,14 +51,29 @@ def objective(opt_vars,
+     poses_quat, num_poses = get_samples_jitted(control_points_homo, control_points_quat, opt_interpolate_pos_step_size, opt_interpolate_rot_step_size)
+     poses_homo = T.convert_pose_quat2mat(poses_quat)
+     debug_dict['num_poses'] = num_poses
++    debug_dict['poses_homo'] = poses_homo
+     start_idx, end_idx = 1, num_poses - 1  # exclude start and goal
++    # paper A.9: no collision within 5cm of the start and the target
++    far = (np.linalg.norm(poses_homo[:, :3, 3] - start_pose[:3], axis=1) > 0.05) & \
++          (np.linalg.norm(poses_homo[:, :3, 3] - end_pose[:3], axis=1) > 0.05)
+ 
+     cost = 0
+     # collision cost
+     if collision_points_centered is not None:
+-        collision_cost = 0.5 * calculate_collision_cost(poses_homo[start_idx:end_idx], sdf_func, collision_points_centered, 0.20)
++        collision_cost = 0.5 * calculate_collision_cost(poses_homo[far], sdf_func, collision_points_centered, 0.15) if far.any() else 0.0  # paper A.9: as in A.8, 15cm
+         debug_dict['collision_cost'] = collision_cost
+         cost += collision_cost
++        # paper A.9: table clearance, the gripper (and held object) points under the table
++        z = batch_transform_points(collision_points_centered, poses_homo[start_idx:end_idx])[..., 2]
++        table_cost = 0.5 * np.sum(np.clip(table_z - z, 0, None))
++        debug_dict['table_cost'] = table_cost
++        cost += table_cost
++
++    # paper A.9: solution consistency, pairwise distance to the previous dense samples (as sets)
++    if prev_poses_homo is not None:
++        consistency_cost = 1.0 * consistency(poses_homo, prev_poses_homo)
++        debug_dict['consistency_cost'] = consistency_cost
++        cost += consistency_cost
+ 
+     # penalize path length
+     pos_length, rot_length = path_length(poses_homo)
+@@ -127,6 +146,7 @@ class PathSolver:
+         self.ik_solver = ik_solver
+         self.reset_joint_pos = reset_joint_pos
+         self.last_opt_result = None
++        self.prev_poses_homo = None
+         # warmup
+         self._warmup()
+ 
+@@ -140,6 +160,7 @@ class PathSolver:
+         collision_points = np.random.rand(100, 3)
+         self.solve(start_pose, end_pose, keypoints, keypoint_movable_mask, path_constraints, sdf_voxels, collision_points, None, from_scratch=True)
+         self.last_opt_result = None
++        self.prev_poses_homo = None
+ 
+     def _setup_sdf(self, sdf_voxels):
+         # create callable sdf function with interpolation
+@@ -215,7 +236,7 @@ class PathSolver:
+ 
+         # bounds for decision variables
+         og_bounds = [(b_min, b_max) for b_min, b_max in zip(self.config['bounds_min'], self.config['bounds_max'])] + \
+-                    [(-np.pi, np.pi) for _ in range(3)]
++                    [(-np.pi, np.pi), (0, np.pi / 2), (-np.pi, np.pi)]  # paper A.9: the sub-goal's bounds (A.8)
+         og_bounds *= (num_control_points - 2)
+         og_bounds = np.array(og_bounds, dtype=np.float64)
+         bounds = [(-1, 1)] * len(og_bounds)
+@@ -264,7 +285,9 @@ class PathSolver:
+                     self.config['opt_interpolate_rot_step_size'],
+                     self.ik_solver,
+                     initial_joint_pos,
+-                    self.reset_joint_pos)
++                    self.reset_joint_pos,
++                    self.config['table_z'],
++                    self.prev_poses_homo if not from_scratch else None)
+ 
+         # ====================================
+         # = solve optimization
+@@ -278,7 +301,7 @@ class PathSolver:
+                 args=aux_args,
+                 maxfun=self.config['sampling_maxfun'],
+                 x0=init_sol,
+-                no_local_search=True,
++                no_local_search=False,  # paper A.9: global search, then local refinement
+                 minimizer_kwargs={
+                     'method': 'SLSQP',
+                     'options': self.config['minimizer_options'],
+@@ -317,4 +340,5 @@ class PathSolver:
+         # cache opt_result for future use if successful
+         if opt_result.success:
+             self.last_opt_result = copy.deepcopy(opt_result)
++            self.prev_poses_homo = debug_dict['poses_homo']
+         return poses_quat, debug_dict
+\ No newline at end of file
+diff --git a/subgoal_solver.py b/subgoal_solver.py
+index 4e50614..4dab679 100644
+--- a/subgoal_solver.py
++++ b/subgoal_solver.py
+@@ -21,6 +21,7 @@ def objective(opt_vars,
+             sdf_func,
+             collision_points_centered,
+             init_pose_homo,
++            prev_pose_homo,
+             ik_solver,
+             initial_joint_pos,
+             reset_joint_pos,
+@@ -35,7 +36,7 @@ def objective(opt_vars,
+     cost = 0
+     # collision cost
+     if collision_points_centered is not None:
+-        collision_cost = 0.8 * calculate_collision_cost(opt_pose_homo[None], sdf_func, collision_points_centered, 0.10)
++        collision_cost = 0.8 * calculate_collision_cost(opt_pose_homo[None], sdf_func, collision_points_centered, 0.15)  # paper A.8: 15cm
+         debug_dict['collision_cost'] = collision_cost
+         cost += collision_cost
+ 
+@@ -44,6 +45,12 @@ def objective(opt_vars,
+     debug_dict['init_pose_cost'] = init_pose_cost
+     cost += init_pose_cost
+ 
++    # paper A.8: solution consistency, close to the previous solution
++    if prev_pose_homo is not None:
++        consistency_cost = 1.0 * consistency(opt_pose_homo[None], prev_pose_homo[None], rot_weight=1.5)
++        debug_dict['consistency_cost'] = consistency_cost
++        cost += consistency_cost
++
+     # reachability cost (approximated by number of IK iterations + regularization from reset joint pos)
+     max_iterations = 20
+     ik_result = ik_solver.solve(
+@@ -215,14 +222,19 @@ class SubgoalSolver:
+         # normalize opt variables to [0, 1]
+         pos_bounds_min = self.config['bounds_min']
+         pos_bounds_max = self.config['bounds_max']
+-        rot_bounds_min = np.array([-np.pi, -np.pi, -np.pi])  # euler angles
+-        rot_bounds_max = np.array([np.pi, np.pi, np.pi])  # euler angles
++        # paper A.8: the half hemisphere where the end-effector (x = approach) faces down; with 'xyz' euler angles
++        # its z component is -sin(pitch)
++        rot_bounds_min = np.array([-np.pi, 0, -np.pi])  # euler angles
++        rot_bounds_max = np.array([np.pi, np.pi / 2, np.pi])  # euler angles
+         og_bounds = [(b_min, b_max) for b_min, b_max in zip(np.concatenate([pos_bounds_min, rot_bounds_min]), np.concatenate([pos_bounds_max, rot_bounds_max]))]
+         bounds = [(-1, 1)] * len(og_bounds)
+         if not from_scratch and self.last_opt_result is not None:
+             init_sol = self.last_opt_result.x
++            prev = unnormalize_vars(init_sol, og_bounds)
++            prev_pose_homo = T.pose2mat([prev[:3], T.euler2quat(prev[3:])])
+         else:
+-            init_sol = normalize_vars(ee_pose_euler, og_bounds)  # start from the current pose
++            init_sol = np.clip(normalize_vars(ee_pose_euler, og_bounds), -1, 1)  # start from the current pose, in bounds
++            prev_pose_homo = None
+             from_scratch = True
+ 
+         # ====================================
+@@ -237,6 +249,7 @@ class SubgoalSolver:
+                     sdf_func,
+                     collision_points_centered,
+                     ee_pose_homo,
++                    prev_pose_homo,
+                     self.ik_solver,
+                     initial_joint_pos,
+                     self.reset_joint_pos,

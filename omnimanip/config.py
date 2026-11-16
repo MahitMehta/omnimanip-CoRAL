@@ -26,4 +26,6 @@ SIDECARS = {
     "any6d": 5672,
     "oriany": 5673,
     "anygrasp": int(os.getenv("ANYGRASP_PORT", "5666")),
+    # SamServer-mahit (rekep/sam_server.py): SAM v1 "segment everything" for ReKep's keypoint proposal
+    "sam": int(os.getenv("SAM_PORT", "5683")),
 }

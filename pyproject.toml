@@ -4,17 +4,24 @@ version = "0.1.0"
 description = "OmniManip (arXiv 2501.03841) baseline on the CoRAL UR5e"
 requires-python = ">=3.12"
 dependencies = [
+    "kmeans-pytorch>=0.3",
     "litellm",
     "msgpack",
     "msgpack-numpy",
+    "numba>=0.68.1",
     "numpy",
+    "open3d>=0.20.0",
     "opencv-python-headless",
+    "parse>=1.22.4",
     "pillow",
     "pyrender>=0.1.45",
     "python-dotenv",
+    "pyyaml>=6.0.3",
     "pyzmq",
     "rosbags",
+    "scikit-learn>=1.9.1",
     "scipy",
+    "torch>=2.15.0",
     "trimesh",
 ]
 
@@ -30,6 +37,6 @@ override-dependencies = ["pyopengl>=3.1.7"]
 extend-exclude = ["third_party"]
 
 [tool.pyright]
-exclude = ["third_party", ".venv"]
+exclude = ["third_party", ".venv", "rekep/sam_server.py"]  # sam_server.py runs in its SAM container
 venvPath = "."
 venv = ".venv"
