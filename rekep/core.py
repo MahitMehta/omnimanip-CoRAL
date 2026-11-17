@@ -178,30 +178,65 @@ def gripper_points(pose):
     return V @ T[:3, :3].T + T[:3, 3]
 
 
-class IK:
-    """ReKep's IKSolver (ik_solver.py: Lula CCD on the Fetch) on our planner URDF: motion.ik's damped least squares,
-    one step per descent, from initial_joint_pos (q0 when None, as in the solvers' warm-up)."""
+_CHAIN = motion._chain()  # base_link -> tool0: [(origin, joint name or None, axis)]
+assert [n for _, n, _ in _CHAIN if n] == motion.UR_JOINTS
+assert all(a is None or np.allclose(a, [0, 0, 1]) for _, _, a in _CHAIN)
 
-    def __init__(self, q0):
-        self.q0 = np.asarray(q0, float)
+
+def _fk(q):
+    """motion.fk (base_T_tool0) plus each joint's position and axis in base_link, for the geometric Jacobian."""
+    T, P, A, i = np.eye(4), [], [], 0
+    for O, name, _ in _CHAIN:
+        T = T @ O
+        if name:
+            P.append(T[:3, 3])
+            A.append(T[:3, 2])
+            c, s = np.cos(q[i]), np.sin(q[i])
+            i += 1
+            T = T @ np.array([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+    return T, np.array(P), np.array(A)
+
+
+def _rotvec(R):
+    th = np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1))
+    if th > np.pi - 1e-3:
+        return Rotation.from_matrix(R).as_rotvec()
+    v = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    return v / 2 if th < 1e-6 else v * th / (2 * np.sin(th))
+
+
+class IK:
+    """ReKep's IKSolver (ik_solver.py: Lula CCD on the Fetch) on our planner URDF: motion.ik's damped least squares
+    and tolerances with the Jacobian from the joint axes (one forward pass per descent), from initial_joint_pos (q0
+    when None, as in the solvers' warm-up)."""
+
+    def __init__(self, q0, tol_t=1e-4, tol_r=1e-3, damping=0.01):
+        self.q0, self.tol_t, self.tol_r, self.lam2 = (
+            np.asarray(q0, float),
+            tol_t,
+            tol_r,
+            damping**2,
+        )
 
     def solve(self, target_pose_homo, max_iterations=20, initial_joint_pos=None, **_):
-        T = np.asarray(target_pose_homo) @ EE_T_TOOL0
-        q, ok, n = (
-            np.asarray(
-                self.q0 if initial_joint_pos is None else initial_joint_pos, float
-            ),
-            False,
-            0,
-        )
-        while n < max_iterations:
-            q, ok = motion.ik(T, q, iters=1)
-            if ok:
+        G = np.asarray(target_pose_homo) @ EE_T_TOOL0
+        q = np.array(self.q0 if initial_joint_pos is None else initial_joint_pos, float)
+        n, ok = 0, False
+        while True:
+            T, P, A = _fk(q)
+            e = np.r_[G[:3, 3] - T[:3, 3], _rotvec(G[:3, :3] @ T[:3, :3].T)]
+            ok = (
+                np.linalg.norm(e[:3]) < self.tol_t
+                and np.linalg.norm(e[3:]) < self.tol_r
+            )
+            if ok or n == max_iterations:
                 break
+            J = np.vstack([np.cross(A, T[:3, 3] - P).T, A.T])
+            q = q + J.T @ np.linalg.solve(J @ J.T + self.lam2 * np.eye(6), e)
             n += 1
         return SimpleNamespace(
             success=ok,
             num_descents=n,
             cspace_position=q,
-            position_error=float(np.linalg.norm(motion.fk(q)[:3, 3] - T[:3, 3])),
+            position_error=float(np.linalg.norm(e[:3])),
         )
