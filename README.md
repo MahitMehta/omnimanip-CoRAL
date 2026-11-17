@@ -14,7 +14,7 @@ A reimplementation of [OmniManip](https://arxiv.org/abs/2501.03841) on a UR5e wi
 | `ros2_ws/` | `omnimanip_interfaces` (typed services) + `omnimanip_ros` (`bridge`, `run_task`, `execute`), docker compose for CoRAL |
 | `sim/` | MuJoCo capture + execution on Albus's ur5e-manip-sim (own venv) |
 | `assets/` | robot URDF |
-| `rekep/` | ReKep: adapters for its released modules (`core.py`), offline runner (`run.py`), its solvers set to the paper's values (`paper.patch`), SAM server (`sam_server.py`) |
+| `rekep/` | ReKep: adapters for its released modules (`core.py`), runner (`run.py`), closed loop (`loop.py`) and point tracker (`tracker.py`), its solvers set to the paper's values (`paper.patch`), SAM server (`sam_server.py`); arm servers in `sim/rekep_arm.py` and `omnimanip_ros/rekep_arm.py` |
 | `third_party/` | Albus's repos and ReKep's (git submodules, pinned) |
 
 ## Pipeline
@@ -47,12 +47,15 @@ Execution (O10), stages 17–20, runs the grasp and then the first interaction s
 
 ## ReKep pipeline
 
-ReKep (arXiv 2409.01652) through its own released modules (`third_party/ReKep` @ 63c43fd with `rekep/paper.patch`), as `rekep.run` stages: `capture` → `keypoints` → `program` → `preview`. Offline only so far; tracking and execution are not built yet.
+ReKep (arXiv 2409.01652) through its own released modules (`third_party/ReKep` @ 63c43fd with `rekep/paper.patch`), as `rekep.run` stages: `capture` → `keypoints` → `program` → `preview` → `execute`. `--arm tcp://<host>:5684` captures from, and executes on, an arm server: `sim/rekep_arm.py` (MuJoCo, its own env) or `ros2 run omnimanip_ros rekep_arm` (the robot); without it the frame comes from `--run`, `--sim` or the bag and the run stops after `preview`.
 
-1. **Capture** (`capture`): the frame packet as OmniManip's stage 1, then every mask in the image from SAM v1's automatic mask generator (ViT-H, its defaults) on `SamServer-mahit` (CoRAL, GPU 0, port 5683).
+1. **Capture** (`capture`): the frame packet as OmniManip's stage 1 (the robot's `/omnimanip/capture`, through the arm server), then every mask in the image from SAM v1's automatic mask generator (ViT-H, its defaults) on `SamServer-mahit` (CoRAL, GPU 0, port 5683); `masks.png` shows each.
 2. **Keypoints** (`keypoints`): on each SAM mask, k-means (k = 5, cosine) on its DINOv2 ViT-S14 (registers) features, each centroid's nearest pixel a candidate; workspace filter; candidates within 6 cm of a kept one (larger masks first) dropped; each keypoint keeps its mask as its rigid group; numbered on `keypoints.png`.
 3. **Program** (`program`): Gemini (minimal thinking) fills ReKep's released prompt template with `keypoints.png`; its parser writes each stage's sub-goal and path constraint functions and the grasp and release keypoints to `program/`.
-4. **Preview** (`preview`): ReKep's sub-goal and path solvers (dual annealing + SLSQP) run stage by stage on the captured frame, open loop (keypoints in the grasped keypoint's object mask ride with the end effector), against an SDF from the frame's depth and our IK; each stage's path and sub-goal gripper drawn on `preview.png`.
+4. **Preview** (`preview`): ReKep's sub-goal and path solvers (dual annealing + SLSQP; IK, rotations and the SDF lookup compiled) run stage by stage on the captured frame, open loop (keypoints in the grasped keypoint's object mask ride with the end effector), against an SDF from the frame's depth; `preview.png` shows each stage's path, solved end-effector point and gripper on the camera view, beside top and side views.
+5. **Execute** (`execute`, `rekep/loop.py`): ReKep's released main loop (Alg. 1): per iteration it checks the stage's path constraints on the tracked keypoints and backtracks to the latest earlier stage whose path constraints hold, else solves the sub-goal and the path (from scratch on a stage's first iteration, then locally from the last solution) and runs the next 5 actions; a stage ends when its path is done (grasp: move in `grasp_depth` and close; release: open). Keypoints: DINOv2 point tracker (paper A.7: reference features within 2 cm, top-100 cosine matches ≥ 0.6, median-deviation outliers out, 10-frame uniform filter) on the latest frame at up to 20 Hz. A grasp stage's sub-goal is AnyGrasp's grasp closest to its grasp keypoint that IK reaches (paper footnote 1; AnyGrasp sees the points within 10 cm of the keypoint), moving with the keypoint. Each action: clip to the workspace, IK every 5 mm / 1° from the current joints, the joint path to the arm server. Writes `exec.json` (stages, solves, events).
+
+Sim: on the Mac, from `third_party/ur5e-manip-sim`, `MUJOCO_GL=cgl PYTHONPATH=.:../..:../ur5e-manip-hardware/ros2_ws/src/manip_bridge ../../sim/.venv/bin/python ../../sim/rekep_arm.py --video <out>/sim.mp4`; tunnel it to CoRAL (`ssh -f -N -R 5684:127.0.0.1:5684 -R 5685:127.0.0.1:5685 coral`) and run `rekep.run --arm tcp://127.0.0.1:5684` there. Robot: the OmniManip setup (Real robot, steps 1–5), then `docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && ros2 run omnimanip_ros rekep_arm --out $RUNS_DIR/rekep_<stamp>'` and, on the host, `.venv/bin/python -m rekep.run --out $RUNS_DIR/rekep_<stamp> --arm tcp://127.0.0.1:5684 --task "<instruction>"`. No operator gates: actions stream at up to 10 % of the joint limits; Ctrl-C stops, the e-stop stays in reach.
 
 ## Setup
 

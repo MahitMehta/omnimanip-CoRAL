@@ -182,3 +182,32 @@ index 4e50614..81c5de0 100644
                      self.ik_solver,
                      initial_joint_pos,
                      self.reset_joint_pos,
+diff --git a/utils.py b/utils.py
+index 60672e6..ae5fff3 100644
+--- a/utils.py
++++ b/utils.py
+@@ -349,13 +349,17 @@ def spline_interpolate_poses(control_points, num_steps):
+         control_points_rotmat = np.array(control_points_rotmat)
+     else:
+         raise ValueError('control_points not recognized')
+-    # remove the duplicate points (threshold 1e-3)
+-    diff = np.linalg.norm(np.diff(control_points_pos, axis=0), axis=1)
+-    mask = diff > 1e-3
+-    # always keep the first and last points
+-    mask = np.concatenate([[True], mask[:-1], [True]])
+-    control_points_pos = control_points_pos[mask]
+-    control_points_rotmat = control_points_rotmat[mask]
++    # remove the duplicate points (threshold 1e-3): each kept point is apart from the last kept one, and the last
++    # point replaces a kept one it duplicates (the released mask let a duplicate end pair reach splprep)
++    keep = [0]
++    for i in range(1, len(control_points_pos)):
++        if np.linalg.norm(control_points_pos[i] - control_points_pos[keep[-1]]) > 1e-3:
++            keep.append(i)
++    keep[-1] = len(control_points_pos) - 1
++    if len(keep) == 1:  # start and end coincide
++        return control_points[[-1] * num_steps]
++    control_points_pos = control_points_pos[keep]
++    control_points_rotmat = control_points_rotmat[keep]
+     # fit b-spline through positional terms control points
+     pos_spline = fit_b_spline(control_points_pos)
+     # fit RotationSpline through rotational terms control points
