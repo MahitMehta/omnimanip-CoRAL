@@ -85,6 +85,33 @@ def frame(d):
     )
 
 
+def masks_sheet(rgb, masks, max_ratio=0.5, cols=6, s=0.4):
+    """One tile per SAM mask (the mask's id = its index in masks.npz, its % of the image; red = over max_ratio,
+    which the keypoint proposer skips)."""
+    tiles = []
+    for i, m in enumerate(masks):
+        t = (rgb * 0.35).astype(np.uint8)
+        t[m] = rgb[m]
+        t = cv2.resize(t, None, fx=s, fy=s)
+        big = m.mean() > max_ratio
+        cv2.putText(
+            t,
+            f"{i}  {100 * m.mean():.1f}%",
+            (4, 18),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 64, 64) if big else (255, 255, 255),
+            1,
+        )
+        tiles.append(
+            cv2.copyMakeBorder(t, 2, 2, 2, 2, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+        )
+    tiles += [np.zeros_like(tiles[0])] * (-len(tiles) % cols)
+    return np.vstack(
+        [np.hstack(tiles[r : r + cols]) for r in range(0, len(tiles), cols)]
+    )
+
+
 def capture(d, a):
     """Frame packet (OmniManip's stage 1), then every mask in the scene from SAM (paper A.5)."""
     rgb, depth, _, packet, rmask = (
@@ -98,6 +125,7 @@ def capture(d, a):
     save(rgb, d / "rgb.png")
     cv2.imwrite(str(d / "depth_mm.png"), np.round(depth * 1000).astype(np.uint16))
     np.savez_compressed(d / "masks.npz", masks=r["masks"], scores=r["scores"])
+    save(masks_sheet(rgb, r["masks"]), d / "masks.png")
     rmask = np.zeros(depth.shape, bool) if rmask is None else rmask
     cv2.imwrite(str(d / "robot_mask.png"), rmask.astype(np.uint8) * 255)
     dump(packet, d / "packet.json")
