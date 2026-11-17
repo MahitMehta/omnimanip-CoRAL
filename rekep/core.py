@@ -36,7 +36,7 @@ def config(lo, hi):
     for k in ("main", "path_solver", "subgoal_solver", "keypoint_proposer"):
         c[k]["bounds_min"], c[k]["bounds_max"] = lo.tolist(), hi.tolist()
     c["keypoint_proposer"]["min_dist_bt_keypoints"] = (
-        0.08  # paper A.5: Mean Shift bandwidth ~8 cm
+        0.06  # released code's (rekep/DEVIATIONS.md)
     )
     c["keypoint_proposer"]["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     for k in ("path_solver", "subgoal_solver"):
