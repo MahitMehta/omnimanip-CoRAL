@@ -54,6 +54,11 @@ WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
 ap = argparse.ArgumentParser()
 ap.add_argument("--scene", default="../../sim/scenes/pour_tea_real.json")
 ap.add_argument("--port", type=int, default=5684)
+ap.add_argument(
+    "--camera-from",
+    default=None,
+    help="a JSON with base_T_cam (robot base, the sim's convention), K and cam_height_above_table: a real run's camera",
+)
 ap.add_argument("--video", default=None, help="mp4 of the camera (every frame served)")
 ap.add_argument(
     "--view", action="store_true", help="live MuJoCo viewer (macOS: run with mjpython)"
@@ -72,10 +77,16 @@ m, d = arm.model, arm.data
 b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "robot0_base")
 W_B = np.eye(4)
 W_B[:3, :3], W_B[:3, 3] = d.xmat[b].reshape(3, 3), d.xpos[b]
-Rz = np.diag([-1.0, -1.0, 1.0])  # base_link -> robosuite base
-W_C = np.eye(4)
-W_C[:3, :3] = W_B[:3, :3] @ Rz @ BASE_LINK_T_CAM[:3, :3]
-W_C[:3, 3] = W_B[:3, :3] @ Rz @ BASE_LINK_T_CAM[:3, 3] + W_B[:3, 3]
+if a.camera_from:
+    c = json.loads(Path(a.camera_from).read_text())
+    B_C, CAM_HEIGHT, FY = (
+        np.array(c["base_T_cam"], float),
+        float(c["cam_height_above_table"]),
+        float(c["K"][1][1]),
+    )
+else:  # the bag's camera: its base_link faces the other way from robosuite's base
+    B_C = np.diag([-1.0, -1.0, 1.0, 1.0]) @ BASE_LINK_T_CAM
+W_C = W_B @ B_C
 W_C[2, 3] = scene.table_top_z + CAM_HEIGHT
 cam = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, CAMERA)
 qc = np.zeros(4)
