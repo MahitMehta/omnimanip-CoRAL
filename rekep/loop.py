@@ -231,6 +231,10 @@ class Env:
             Q.append(r.cspace_position)
         if len(Q) > 1:
             rep = self.arm("move", path=np.array(Q), speed=self.speed)
+            if "held_drift" in rep:  # the sim's grip diagnostics
+                self.log["events"].append(
+                    {"t": time.time(), "held_drift": rep["held_drift"]}
+                )
             if not rep["ok"]:
                 raise RuntimeError(f"move failed: {rep}")
         self.step_counter += 1

@@ -253,6 +253,66 @@ def hold(g):
         render()
 
 
+held = {}  # at a close that holds: the object and its pose in the grip site's frame
+
+
+def site_T():
+    s_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, SITE)
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = d.site_xmat[s_id].reshape(3, 3), d.site_xpos[s_id]
+    return T
+
+
+def obj_T(o):
+    b = next(
+        b
+        for b in range(m.nbody)
+        if (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, b) or "").startswith(o)
+    )
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = d.xmat[b].reshape(3, 3), d.xpos[b]
+    return T
+
+
+def grip_report(o):
+    """Diagnostics of the grip on o: the pads' summed normal force on it (N) and how far back from the pads' tips
+    (along the approach) the contacts sit (m)."""
+    pads = {
+        g
+        for g in range(m.ngeom)
+        if "fingerpad" in (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) or "")
+    }
+    obj = {
+        g
+        for g in range(m.ngeom)
+        if (
+            mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, m.geom_bodyid[g]) or ""
+        ).startswith(o)
+    }
+    S = site_T()
+    z = S[:3, 2]
+    tips = (
+        max(
+            (d.geom_xpos[g] - S[:3, 3]) @ z
+            + np.abs(d.geom_xmat[g].reshape(3, 3).T @ z) @ m.geom_size[g]
+            for g in pads
+        )
+        + S[:3, 3] @ z
+    )
+    force, back = 0.0, []
+    f6 = np.zeros(6)
+    for i in range(d.ncon):
+        c = d.contact[i]
+        if (c.geom1 in pads and c.geom2 in obj) or (c.geom2 in pads and c.geom1 in obj):
+            mujoco.mj_contactForce(m, d, i, f6)
+            force += abs(f6[0])
+            back.append(float(tips - c.pos @ z))
+    return {
+        "pad_force_N": round(force, 2),
+        "contact_back_from_tips_m": [round(b, 4) for b in back],
+    }
+
+
 def handle(req):
     c = req["cmd"]
     if c == "capture":
@@ -263,11 +323,26 @@ def handle(req):
         st = tracker.track(
             np.asarray(req["path"], float) + WRIST_OFF, grip[0], on_step=render
         )
-        return {
+        rep = {
             "ok": not st.stalled,
             "q": arm.q() - WRIST_OFF,
             "error": "the arm stalled (obstructed)",
         }
+        if held:  # how far the held object has moved in the grip since the close
+            D = np.linalg.inv(held["T"]) @ np.linalg.inv(site_T()) @ obj_T(held["o"])
+            rep["held_drift"] = {
+                "pos_m": round(float(np.linalg.norm(D[:3, 3])), 4),
+                "rot_deg": round(
+                    float(
+                        np.degrees(
+                            np.arccos(np.clip((np.trace(D[:3, :3]) - 1) / 2, -1, 1))
+                        )
+                    ),
+                    1,
+                ),
+                **grip_report(held["o"]),
+            }
+        return rep
     if c == "gripper":
         hold(GRIPPER_CLOSE if req["close"] else GRIPPER_OPEN)
         touch = {o: arm.contacts_between("gripper0", o) for o in scene.objects}
@@ -278,12 +353,18 @@ def handle(req):
         ]
         gap = float(max(np.linalg.norm(p - q) for p in pads for q in pads))
         grasped = req["close"] and any(touch.values())
-        return {
+        held.clear()
+        rep = {
             "ok": True,
             "grasped": bool(grasped),
             "touching": touch,
             "pad_span_m": gap,
         }
+        if grasped:
+            o = max(touch, key=lambda k: touch[k])
+            held.update(o=o, T=np.linalg.inv(site_T()) @ obj_T(o))
+            rep |= grip_report(o)
+        return rep
     return {"ok": False, "error": f"unknown cmd {c!r}"}
 
 
