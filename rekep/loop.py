@@ -295,8 +295,9 @@ class Loop(Main):
 
 def choose_grasp(env, k, radius=0.10):
     """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre), among those IK
-    reaches. AnyGrasp sees the latest frame's points within `radius` of k, without the arm. -> base_T_grasp (AnyGrasp
-    frame: x approach, fingertips at the origin)."""
+    reaches and that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0). AnyGrasp sees the
+    latest frame's points within `radius` of k, without the arm. -> base_T_grasp (AnyGrasp frame: x approach,
+    fingertips at the origin)."""
     f = env.last
     P = C.points(f["depth"], env.K, env.T)
     near = (
@@ -307,7 +308,7 @@ def choose_grasp(env, k, radius=0.10):
     rep = AG.anygrasp(f["rgb"], f["depth"], env.K, near)
     tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
     for i in np.argsort([np.linalg.norm(T[:3, 3] - k) for T in tips]):
-        if env.ik.solve(tips[i], 100).success:
+        if tips[i][2, 0] <= 0 and env.ik.solve(tips[i], 100).success:
             env.log["grasp"] = {
                 "index": int(i),
                 "n": int(rep["n"]),
@@ -315,7 +316,7 @@ def choose_grasp(env, k, radius=0.10):
             }
             return tips[i]
     raise RuntimeError(
-        f"none of AnyGrasp's {rep['n']} grasps near keypoint is reachable"
+        f"none of AnyGrasp's {rep['n']} grasps near the keypoint faces down and is reachable"
     )
 
 
