@@ -50,7 +50,7 @@ Execution (O10), stages 17–20, runs the grasp and then the first interaction s
 ReKep (arXiv 2409.01652) through its own released modules (`third_party/ReKep` @ 63c43fd with `rekep/paper.patch`), as `rekep.run` stages: `capture` → `keypoints` → `program` → `preview`. Offline only so far; tracking and execution are not built yet.
 
 1. **Capture** (`capture`): the frame packet as OmniManip's stage 1, then every mask in the image from SAM v1's automatic mask generator (ViT-H, its defaults) on `SamServer-mahit` (CoRAL, GPU 0, port 5683).
-2. **Keypoints** (`keypoints`): ReKep's proposer on each SAM mask: DINOv2 ViT-S14 (registers) features, PCA to 3, k-means k = 5 per mask, workspace filter, Mean Shift at 8 cm; each keypoint keeps its mask as its rigid group; numbered on `keypoints.png`.
+2. **Keypoints** (`keypoints`): on each SAM mask, k-means (k = 5, cosine) on its DINOv2 ViT-S14 (registers) features, each centroid's nearest pixel a candidate; workspace filter; candidates within 6 cm of a kept one (larger masks first) dropped; each keypoint keeps its mask as its rigid group; numbered on `keypoints.png`.
 3. **Program** (`program`): Gemini (minimal thinking) fills ReKep's released prompt template with `keypoints.png`; its parser writes each stage's sub-goal and path constraint functions and the grasp and release keypoints to `program/`.
 4. **Preview** (`preview`): ReKep's sub-goal and path solvers (dual annealing + SLSQP) run stage by stage on the captured frame, open loop (keypoints in the grasped keypoint's object mask ride with the end effector), against an SDF from the frame's depth and our IK; each stage's path and sub-goal gripper drawn on `preview.png`.
 

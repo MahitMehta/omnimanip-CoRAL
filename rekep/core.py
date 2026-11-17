@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 from keypoint_proposal import KeypointProposer
+from kmeans_pytorch import kmeans
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial.transform import Rotation
 from utils import get_config
@@ -35,9 +36,7 @@ def config(lo, hi):
     c = copy.deepcopy(get_config())
     for k in ("main", "path_solver", "subgoal_solver", "keypoint_proposer"):
         c[k]["bounds_min"], c[k]["bounds_max"] = lo.tolist(), hi.tolist()
-    c["keypoint_proposer"]["min_dist_bt_keypoints"] = (
-        0.06  # released code's (rekep/DEVIATIONS.md)
-    )
+    c["keypoint_proposer"]["min_dist_bt_keypoints"] = 0.06  # rekep/DEVIATIONS.md
     c["keypoint_proposer"]["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     for k in ("path_solver", "subgoal_solver"):
         c[k]["max_collision_points"] = 30  # paper A.8
@@ -56,6 +55,41 @@ class Proposer(KeypointProposer):
             rgb, points, np.zeros(rgb.shape[:2], int)
         )
         return t, rgb, points, list(masks), info
+
+    def _cluster_features(self, points, features_flat, masks):
+        """Paper A.5: per mask, k-means (k = 5, cosine) on its DINOv2 features; a centroid's candidate is the mask's
+        pixel nearest it (cosine), at that pixel's point. Larger masks first, the order _merge_clusters keeps."""
+        k, out = self.config["num_candidates_per_mask"], []
+        for j in sorted(range(len(masks)), key=lambda j: -masks[j].sum()):
+            m = masks[j]
+            if m.mean() > self.config["max_mask_ratio"]:
+                continue
+            sel = torch.from_numpy(m.reshape(-1)).to(features_flat.device)
+            F = torch.nn.functional.normalize(features_flat[sel].float(), dim=-1)
+            _, centers = kmeans(
+                X=F, num_clusters=k, distance="cosine", device=self.device
+            )
+            best = (
+                (F @ torch.nn.functional.normalize(centers.to(F), dim=-1).T)
+                .argmax(0)
+                .cpu()
+                .numpy()
+            )
+            out += [(points[m][i], np.argwhere(m)[i], j) for i in best]
+        kps, pxs, ids = (np.array(x) for x in zip(*out))
+        return kps, pxs, ids
+
+    def _merge_clusters(self, candidate_keypoints):
+        """Paper A.5: candidates within min_dist_bt_keypoints of a kept one are filtered out."""
+        keep = []
+        for i, p in enumerate(candidate_keypoints):
+            if (
+                not keep
+                or np.linalg.norm(candidate_keypoints[keep] - p, axis=1).min()
+                >= self.config["min_dist_bt_keypoints"]
+            ):
+                keep.append(i)
+        return keep
 
     def _project_keypoints_to_img(
         self, rgb, candidate_pixels, candidate_rigid_group_ids, masks, features_flat
