@@ -77,6 +77,7 @@ class Env:
         self, arm, cfg, packet, masks, pixels, proposer, log, speed, cap_depth
     ):
         self.speed, self.cap_depth, self.grasp_keypoint = speed, cap_depth, -1
+        self.stop = threading.Event()
         self.table_z = cfg["path_solver"]["table_z"]
         self.arm, self.cfg, self.log = arm, cfg, log
         self.K, self.T = np.array(packet["K"]), np.array(packet["t_base_cam"]["T"])
@@ -103,7 +104,6 @@ class Env:
         f = self.arm.frame()
         self.last, self.kps = f, self.tracker.start(f["rgb"], f["depth"], keypoints)
         self.kps0 = self.kps.copy()
-        self.stop = threading.Event()
         threading.Thread(target=self._track, daemon=True).start()
 
     def _track(self):
