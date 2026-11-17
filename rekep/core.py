@@ -10,7 +10,6 @@ import numpy as np
 import torch
 import transform_utils as TU
 from keypoint_proposal import KeypointProposer
-from kmeans_pytorch import kmeans
 from numba import njit
 from path_solver import PathSolver
 from scipy.ndimage import distance_transform_edt
@@ -72,15 +71,7 @@ class Proposer(KeypointProposer):
                 continue
             sel = torch.from_numpy(m.reshape(-1)).to(features_flat.device)
             F = torch.nn.functional.normalize(features_flat[sel].float(), dim=-1)
-            _, centers = kmeans(
-                X=F, num_clusters=k, distance="cosine", device=self.device
-            )
-            best = (
-                (F @ torch.nn.functional.normalize(centers.to(F), dim=-1).T)
-                .argmax(0)
-                .cpu()
-                .numpy()
-            )
+            best = (F @ cosine_kmeans(F, k).T).argmax(0).cpu().numpy()
             out += [(points[m][i], np.argwhere(m)[i], j) for i in best]
         kps, pxs, ids = (np.array(x) for x in zip(*out))
         return kps, pxs, ids
@@ -126,6 +117,24 @@ def label_keypoints(rgb, pixels):
             1,
         )
     return img
+
+
+def cosine_kmeans(F, k, iters=100, tol=1e-4):
+    """k-means on unit vectors F with cosine similarity: each point to its most similar centre, each centre the
+    normalised mean of its points; an empty cluster keeps its centre (kmeans_pytorch's turned NaN and never
+    stopped). Starts from k distinct points (torch's seeded generator). -> k unit centres."""
+    C = F[torch.randperm(len(F), device=F.device)[:k]]
+    for _ in range(iters):
+        lab = (F @ C.T).argmax(1)
+        new = torch.stack(
+            [F[lab == j].mean(0) if (lab == j).any() else C[j] for j in range(len(C))]
+        )
+        new = torch.nn.functional.normalize(new, dim=-1)
+        done = (new - C).norm(dim=-1).max() < tol
+        C = new
+        if done:
+            break
+    return C
 
 
 def proposer(cfg):

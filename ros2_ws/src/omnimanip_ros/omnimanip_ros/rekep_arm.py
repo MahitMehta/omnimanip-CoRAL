@@ -3,11 +3,11 @@ from the bridge's /omnimanip/capture, the latest synced camera frame and joints,
 FollowJointTrajectory and the Robotiq through gripper-control's /gripper/gripper_cmd, all as `execute` does them
 (its Executor, without FoundationPose: ReKep tracks its keypoints itself). No operator gates (the user's choice for
 ReKep's streamed execution); Ctrl-C here or in the loop stops it, and the e-stop stays in reach. A close holds
-something when the jaws stop more than GRASPED_GAP apart. With --out, records camera 1 to <out>/videos/ and writes
-<out>/arm_joints.json on exit, as `execute` does.
+something when the jaws stop more than GRASPED_GAP apart. With --out (the runs root), records camera 1 to
+<out>/videos/rekep_<start>_camera1.webm and writes <out>/videos/rekep_<start>_joints.json on exit, as `execute` does.
 
     docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \\
-        ros2 run omnimanip_ros rekep_arm --out $RUNS_DIR/rekep_<stamp>'
+        ros2 run omnimanip_ros rekep_arm --out $RUNS_DIR'
 """
 
 import argparse
@@ -109,7 +109,7 @@ def main():
     ap.add_argument(
         "--out",
         default=None,
-        help="a run dir: camera 1's video and the joints are written there",
+        help="runs root: camera 1's video and the joints go to <out>/videos/",
     )
     a, ros_args = ap.parse_known_args()
     rclpy.init(args=ros_args)
@@ -118,13 +118,10 @@ def main():
     ex = MultiThreadedExecutor()
     ex.add_node(node)
     threading.Thread(target=ex.spin, daemon=True).start()
-    rec = None
+    rec, stem = None, None
     if a.out:
-        video = (
-            Path(a.out)
-            / "videos"
-            / f"rekep_{time.strftime('%Y%m%d_%H%M%S')}_camera1.webm"
-        )
+        stem = Path(a.out) / "videos" / f"rekep_{time.strftime('%Y%m%d_%H%M%S')}"
+        video = Path(f"{stem}_camera1.webm")
         rec = subprocess.Popen(
             [
                 sys.executable,
@@ -155,7 +152,7 @@ def main():
     finally:
         if a.out:
             time.sleep(REC_TAIL)
-            Path(a.out, "arm_joints.json").write_text(
+            Path(f"{stem}_joints.json").write_text(
                 json.dumps(
                     {
                         "t": [t for t, _ in node.q_log],

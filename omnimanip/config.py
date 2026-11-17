@@ -28,4 +28,6 @@ SIDECARS = {
     "anygrasp": int(os.getenv("ANYGRASP_PORT", "5666")),
     # SamServer-mahit (rekep/sam_server.py): SAM v1 "segment everything" for ReKep's keypoint proposal
     "sam": int(os.getenv("SAM_PORT", "5683")),
+    # ReKep's arm server (rekep/loop.py's protocol; frames on port + 1): omnimanip_ros rekep_arm, or sim/rekep_arm.py
+    "rekep_arm": int(os.getenv("REKEP_ARM_PORT", "5684")),
 }

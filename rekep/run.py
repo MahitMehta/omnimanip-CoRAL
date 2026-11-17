@@ -1,9 +1,11 @@
-"""ReKep's pipeline (README "ReKep pipeline") offline, into one run directory, stage by stage; --from resumes.
+"""ReKep's pipeline (README "ReKep pipeline"), into one run directory, stage by stage, on the arm server
+SIDECARS["rekep_arm"] (the robot's omnimanip_ros rekep_arm, or sim/rekep_arm.py):
 
-uv run python -m rekep.run --out outputs/rekep/<name> --task "Pour tea into the cup"   # the bag in extracted/
-uv run python -m rekep.run --out DIR --sim FRAME --task ...                            # a sim/capture.py frame
-uv run python -m rekep.run --out DIR --run outputs/runs/<id> --task ...                # an OmniManip run's frame
-uv run python -m rekep.run --out DIR --from program
+python -m rekep.run --out $RUNS_DIR --task "Pour tea into the cup" --plan     # plan: <out>/rekep_<stamp>, no motion
+python -m rekep.run --run $RUNS_DIR/rekep_<stamp> --from execute             # execute it
+python -m rekep.run --out $RUNS_DIR --task ...                                # both at once
+python -m rekep.run --out outputs/rekep --bag | --sim FRAME | --omni-run DIR  # offline frames: planning only
+python -m rekep.run --run DIR --from preview                                   # the open-loop preview of a plan
 """
 
 import argparse
@@ -28,7 +30,7 @@ from utils import (
 
 from omnimanip import shared_perception as S
 from omnimanip import viz
-from omnimanip.config import ROOT, VLM_MODEL, VLM_REASONING
+from omnimanip.config import HOST, ROOT, SIDECARS, VLM_MODEL, VLM_REASONING
 from omnimanip.run import dump, save
 
 from . import core as C
@@ -134,13 +136,13 @@ def masks_sheet(rgb, masks, max_ratio=0.5, cols=6, s=0.4):
 def capture(d, a):
     """Frame packet (OmniManip's stage 1), then every mask in the scene from SAM (paper A.5)."""
     rgb, depth, _, packet, rmask = (
-        arm_packet(a.arm)
-        if a.arm
-        else run_packet(a.run)
-        if a.run
+        run_packet(a.omni_run)
+        if a.omni_run
         else S.sim_packet(a.sim)
         if a.sim
         else S.bag_packet(a.extracted, a.start)
+        if a.bag
+        else arm_packet(a.arm)
     )
     r = S.cli("sam", 120).call({"cmd": "everything", "rgb": rgb})
     save(rgb, d / "rgb.png")
@@ -420,45 +422,62 @@ def execute(d, a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", required=True)
+    where = ap.add_mutually_exclusive_group(required=True)
+    where.add_argument(
+        "--out", help="runs root; the run goes to <out>/rekep_<timestamp>"
+    )
+    where.add_argument(
+        "--run", help="an existing run dir, to continue (--from) or execute"
+    )
     ap.add_argument("--task", default="Pour tea into the cup")
-    ap.add_argument("--extracted", default="extracted", help="extract_bag output")
     ap.add_argument(
-        "--start", type=int, default=58, help="first bag frame of the packet"
-    )
-    ap.add_argument(
-        "--sim", default=None, help="a sim/capture.py frame dir instead of the bag"
-    )
-    ap.add_argument(
-        "--run",
-        default=None,
-        help="an OmniManip run dir: its captured frame instead of the bag",
-    )
-    ap.add_argument(
-        "--arm",
-        default=None,
-        help="an arm server (rekep/loop.py), e.g. tcp://127.0.0.1:5684: capture from it, and execute on it",
-    )
-    ap.add_argument(
-        "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
+        "--plan",
+        action="store_true",
+        help="stop before execute (planning only, no motion)",
     )
     ap.add_argument(
         "--preview",
         action="store_true",
         help="also run the open-loop preview (every stage's solves on the captured frame, ~1 min); --from preview runs it too",
     )
+    ap.add_argument(
+        "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
+    )
     ap.add_argument("--from", dest="start_stage", choices=STAGES, default=STAGES[0])
     ap.add_argument(
         "--skip", nargs="*", choices=STAGES, default=[], help="stages not to run"
     )
+    off = ap.add_argument_group(
+        "offline frame sources (default: the live arm server, SIDECARS['rekep_arm'])"
+    )
+    off.add_argument(
+        "--bag",
+        action="store_true",
+        help="the extracted bag's frame (--extracted, --start)",
+    )
+    off.add_argument("--extracted", default="extracted", help="extract_bag output")
+    off.add_argument(
+        "--start", type=int, default=58, help="first bag frame of the packet"
+    )
+    off.add_argument("--sim", default=None, help="a sim/capture.py frame dir")
+    off.add_argument(
+        "--omni-run", default=None, help="an OmniManip run dir: its captured frame"
+    )
     a = ap.parse_args()
-    d = Path(a.out)
+    a.arm = f"tcp://{HOST}:{SIDECARS['rekep_arm']}"
+    offline = a.bag or a.sim or a.omni_run
+    d = (
+        Path(a.run)
+        if a.run
+        else Path(a.out) / f"rekep_{time.strftime('%Y%m%d_%H%M%S')}"
+    )
     d.mkdir(parents=True, exist_ok=True)
+    print("run:", d, flush=True)
     times = {}
     for st in STAGES[STAGES.index(a.start_stage) :]:
         if (
             st not in a.skip
-            and (st != "execute" or a.arm)
+            and (st != "execute" or not (a.plan or offline))
             and (st != "preview" or a.preview or a.start_stage == st)
         ):
             t0 = time.time()

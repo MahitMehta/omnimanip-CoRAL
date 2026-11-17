@@ -335,7 +335,7 @@ def _tips(rep, i):
 
 
 def execute(d, a, cfg, packet, masks, kp, proposer):
-    """Run the program in d on the arm server a.arm; writes exec.json."""
+    """Run the program in d on the arm server a.arm (SIDECARS["rekep_arm"]); writes exec.json."""
     log = {
         "args": {k: str(v) for k, v in vars(a).items()},
         "events": [],
