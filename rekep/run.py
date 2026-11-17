@@ -417,6 +417,7 @@ def execute(d, a):
 
     _, _, _, packet, masks, _, _ = frame(d)
     cfg = C.config(*C.workspace(packet))
+    cfg["main"]["constraint_tolerance"] = a.backtrack_tol
     kp = json.loads((d / "keypoints.json").read_text())
     loop.execute(d, a, cfg, packet, masks, kp, C.proposer(cfg))
 
@@ -443,6 +444,12 @@ def main():
     )
     ap.add_argument(
         "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
+    )
+    ap.add_argument(
+        "--backtrack-tol",
+        type=float,
+        default=0.10,
+        help="a path constraint above this sends the loop back a stage (ReKep's constraint_tolerance, 0.10)",
     )
     ap.add_argument(
         "--top-down-deg",
