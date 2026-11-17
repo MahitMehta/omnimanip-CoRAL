@@ -47,6 +47,9 @@ CAM_HEIGHT, FY, H, W = 0.2547, 607.4, 480, 640
 ROBOT_PREFIXES = ("robot0_", "gripper0_", "fixed_mount0_")
 SITE, CAMERA = "gripper0_right_grip_site", "frontview"
 GRIP_STEPS = 40  # control steps the gripper is held closing or opening
+# robosuite mounts its Robotiq 90 deg about the approach axis from the planner URDF's (its fingers close along the
+# URDF gripper's z): the arm's last joint runs WRIST_OFF ahead of the joints the loop sees, so the two grippers match
+WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scene", default="../../sim/scenes/pour_tea_real.json")
@@ -117,7 +120,7 @@ def render():
         "rgb": rgb,
         "depth": np.where(depth < 10, depth, 0).astype(np.float32),
         "robot_mask": np.isin(seg, robot_geoms),
-        "q": arm.q(),
+        "q": arm.q() - WRIST_OFF,
         "t": float(d.time),
     }
     with lock:
@@ -159,7 +162,7 @@ def capture():
             "K": K.tolist(),
             "world_T_cam": W_C.tolist(),
             "world_T_base": W_B.tolist(),
-            "joints": {"names": names, "q": arm.q().tolist()},
+            "joints": {"names": names, "q": (arm.q() - WRIST_OFF).tolist()},
         }
         (t / "meta.json").write_text(json.dumps(meta))
         rgb, depth, K_, packet, rmask = S.sim_packet(t)
@@ -184,12 +187,14 @@ def handle(req):
     if c == "capture":
         return capture()
     if c == "joints":
-        return {"q": arm.q()}
+        return {"q": arm.q() - WRIST_OFF}
     if c == "move":
-        st = tracker.track(np.asarray(req["path"], float), grip[0], on_step=render)
+        st = tracker.track(
+            np.asarray(req["path"], float) + WRIST_OFF, grip[0], on_step=render
+        )
         return {
             "ok": not st.stalled,
-            "q": arm.q(),
+            "q": arm.q() - WRIST_OFF,
             "error": "the arm stalled (obstructed)",
         }
     if c == "gripper":
