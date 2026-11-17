@@ -21,7 +21,7 @@ import types
 
 import cv2
 import numpy as np
-from manip_bridge.zmq_client import SidecarClient
+from manip_bridge.zmq_client import SidecarClient, SidecarError
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation
 
@@ -91,6 +91,10 @@ class Env:
             None,
         )
         self.curobo = motion.cli(30)
+        try:  # the sim's fingertips sit short of the planner model's (sim/rekep_arm.py); the robot's don't
+            C.set_tip_offset(float(arm("info").get("tip_offset", 0.0)))
+        except SidecarError:
+            C.set_tip_offset(0.0)
         self.ik = C.IK(self.q())
         self.reset_joint_pos = self.q()
 
@@ -297,9 +301,11 @@ class Loop(Main):
 
 def choose_grasp(env, k, radius=0.10):
     """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre), among those IK
-    reaches, that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0), and whose open gripper
+    reaches, at least OmniManip's MIN_DEPTH deep, that face down as the sub-goal's rotation bounds require (A.8:
+    approach z <= 0), and whose open gripper
     stays above the table plane (the push-in to a grasp is not collision-checked). AnyGrasp sees the
-    latest frame's points within `radius` of k, without the arm. -> base_T_grasp (AnyGrasp frame: x approach,
+    latest frame's points within `radius` of k, without the arm, and returns its detections (after its NMS and
+    scoring; its dense mode's every proposal includes millimetre-deep, near-zero-score ones). -> base_T_grasp (AnyGrasp frame: x approach,
     fingertips at the origin)."""
     f = env.last
     P = C.points(f["depth"], env.K, env.T)
@@ -308,14 +314,24 @@ def choose_grasp(env, k, radius=0.10):
         & (f["depth"] > 0)
         & ~env._robot_mask(f)
     )
-    rep = AG.anygrasp(f["rgb"], f["depth"], env.K, near)
+    rep = AG.anygrasp(
+        f["rgb"], f["depth"], env.K, near, dense=False
+    )  # its detector output, not every proposal
     tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
     for i in np.argsort([np.linalg.norm(T[:3, 3] - k) for T in tips]):
         T = tips[i]
         z = C.gripper_points(
             np.r_[T[:3, 3], Rotation.from_matrix(T[:3, :3]).as_quat()]
         )[:, 2]
-        if T[2, 0] <= 0 and z.min() >= env.table_z and env.ik.solve(T, 100).success:
+        deep = (
+            rep["depths"][i] >= AG.MIN_DEPTH - 1e-6
+        )  # OmniManip's real-gripper rule (its stage 15)
+        if (
+            deep
+            and T[2, 0] <= 0
+            and z.min() >= env.table_z
+            and env.ik.solve(T, 100).success
+        ):
             env.log["grasp"] = {
                 "base_T_grasp": T.tolist(),
                 "depth_m": float(rep["depths"][i]),
@@ -328,7 +344,7 @@ def choose_grasp(env, k, radius=0.10):
             }
             return tips[i]
     raise RuntimeError(
-        f"none of AnyGrasp's {rep['n']} grasps near the keypoint faces down, clears the table and is reachable"
+        f"none of AnyGrasp's {rep['n']} grasps near the keypoint is deep enough, faces down, clears the table and is reachable"
     )
 
 

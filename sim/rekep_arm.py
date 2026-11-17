@@ -51,6 +51,7 @@ MAX_DEPTH = 1.5  # m: farther has no depth, as the real cell's black backdrop (e
 # robosuite mounts its Robotiq 90 deg about the approach axis from the planner URDF's (its fingers close along the
 # URDF gripper's z): the arm's last joint runs WRIST_OFF ahead of the joints the loop sees, so the two grippers match
 WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
+TIP_OFFSET = 0.0086  # m: its fingertips end this far behind the planner model's along the approach (measured)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scene", default="../../sim/scenes/pour_tea_real.json")
@@ -198,6 +199,8 @@ def handle(req):
     c = req["cmd"]
     if c == "capture":
         return capture()
+    if c == "info":
+        return {"tip_offset": TIP_OFFSET}
     if c == "joints":
         return {"q": arm.q() - WRIST_OFF}
     if c == "move":
