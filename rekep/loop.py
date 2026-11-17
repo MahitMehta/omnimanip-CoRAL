@@ -56,6 +56,7 @@ TRACK_HZ = 20  # paper A.7
 HELD_CLEAR = 0.02  # m: scene points this close to the held object's points leave the SDF (rekep/DEVIATIONS.md)
 GRASPED_GAP = 0.002  # m: a close that stops wider than this holds something
 IK_STEPS = 300  # damped least-squares steps an action's waypoint may take
+IK_ACCEPT = 0.01  # m: an unconverged waypoint closer than this is still taken
 
 
 class Arm:
@@ -207,7 +208,9 @@ class Env:
         Q = [q]
         for pose in linear_interpolate_poses(cur, target, max(n, 2))[1:]:
             r = self.ik.solve(C.mat(pose), IK_STEPS, Q[-1])
-            if not r.success:
+            if (
+                not r.success
+            ):  # best effort, as ReKep's PyBullet IK; a far miss stops the path here
                 self.log["events"].append(
                     {
                         "t": time.time(),
@@ -218,7 +221,8 @@ class Env:
                         "steps": n,
                     }
                 )
-                break
+                if r.position_error > IK_ACCEPT:
+                    break
             Q.append(r.cspace_position)
         if len(Q) > 1:
             rep = self.arm("move", path=np.array(Q), speed=self.speed)
