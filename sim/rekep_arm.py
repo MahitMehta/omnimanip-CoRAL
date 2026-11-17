@@ -56,8 +56,9 @@ WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
 # approach: its gripper is moved out that far, so the sim's fingers are where the real gripper's are
 GRIPPER_EXTEND = 0.0086
 # its finger position servos (gain 20) squeeze a closed handle with ~1.6 N, the real Robotiq with up to 60 N (we set
-# 60): their gain is scaled up so a close squeezes at least 10 N (the close's pad_force_N reports it)
-GRIP_GAIN = 10.0
+# 60): their gain is scaled up (5x: 6x and more go unstable at its 2 ms step; the close's pad_force_N reports the
+# squeeze)
+GRIP_GAIN = 5.0
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scene", default="../../sim/scenes/pour_tea_real.json")
