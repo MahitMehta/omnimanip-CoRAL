@@ -111,10 +111,19 @@ index 1ffb667..202ed42 100644
          return poses_quat, debug_dict
 \ No newline at end of file
 diff --git a/subgoal_solver.py b/subgoal_solver.py
-index 4e50614..81c5de0 100644
+index 4e50614..bfdf3e9 100644
 --- a/subgoal_solver.py
 +++ b/subgoal_solver.py
-@@ -21,6 +21,7 @@ def objective(opt_vars,
+@@ -12,6 +12,8 @@ from utils import (
+     farthest_point_sampling,
+     consistency,
+ )
++POSE_REG = 1.0  # weight of the pose regularization (set by rekep.run --pose-reg)
++
+ def objective(opt_vars,
+             og_bounds,
+             keypoints_centered,
+@@ -21,6 +23,7 @@ def objective(opt_vars,
              sdf_func,
              collision_points_centered,
              init_pose_homo,
@@ -122,7 +131,7 @@ index 4e50614..81c5de0 100644
              ik_solver,
              initial_joint_pos,
              reset_joint_pos,
-@@ -29,13 +30,14 @@ def objective(opt_vars,
+@@ -29,21 +32,28 @@ def objective(opt_vars,
  
      debug_dict = {}
      # unnormalize variables and do conversion
@@ -138,7 +147,9 @@ index 4e50614..81c5de0 100644
          debug_dict['collision_cost'] = collision_cost
          cost += collision_cost
  
-@@ -44,6 +46,12 @@ def objective(opt_vars,
+     # stay close to initial pose
+-    init_pose_cost = 1.0 * consistency(opt_pose_homo[None], init_pose_homo[None], rot_weight=1.5)
++    init_pose_cost = POSE_REG * consistency(opt_pose_homo[None], init_pose_homo[None], rot_weight=1.5)
      debug_dict['init_pose_cost'] = init_pose_cost
      cost += init_pose_cost
  
@@ -151,7 +162,7 @@ index 4e50614..81c5de0 100644
      # reachability cost (approximated by number of IK iterations + regularization from reset joint pos)
      max_iterations = 20
      ik_result = ik_solver.solve(
-@@ -215,14 +223,19 @@ class SubgoalSolver:
+@@ -215,14 +225,19 @@ class SubgoalSolver:
          # normalize opt variables to [0, 1]
          pos_bounds_min = self.config['bounds_min']
          pos_bounds_max = self.config['bounds_max']
@@ -174,7 +185,7 @@ index 4e50614..81c5de0 100644
              from_scratch = True
  
          # ====================================
-@@ -237,6 +250,7 @@ class SubgoalSolver:
+@@ -237,6 +252,7 @@ class SubgoalSolver:
                      sdf_func,
                      collision_points_centered,
                      ee_pose_homo,

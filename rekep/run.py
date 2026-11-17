@@ -418,6 +418,10 @@ def execute(d, a):
     _, _, _, packet, masks, _, _ = frame(d)
     cfg = C.config(*C.workspace(packet))
     cfg["main"]["constraint_tolerance"] = a.backtrack_tol
+    cfg["main"]["action_steps_per_iter"] = a.steps_per_solve
+    import subgoal_solver
+
+    subgoal_solver.POSE_REG = a.pose_reg
     kp = json.loads((d / "keypoints.json").read_text())
     loop.execute(d, a, cfg, packet, masks, kp, C.proposer(cfg))
 
@@ -444,6 +448,18 @@ def main():
     )
     ap.add_argument(
         "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
+    )
+    ap.add_argument(
+        "--pose-reg",
+        type=float,
+        default=1.0,
+        help="weight of the sub-goal's stay-near-the-current-pose cost (ReKep's 1.0; higher keeps the hand's orientation)",
+    )
+    ap.add_argument(
+        "--steps-per-solve",
+        type=int,
+        default=5,
+        help="actions run between re-solves (ReKep's action_steps_per_iter, 5)",
     )
     ap.add_argument(
         "--backtrack-tol",
