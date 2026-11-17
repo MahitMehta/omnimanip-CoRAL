@@ -270,10 +270,20 @@ def handle(req):
         }
     if c == "gripper":
         hold(GRIPPER_CLOSE if req["close"] else GRIPPER_OPEN)
-        grasped = req["close"] and any(
-            arm.contacts_between("gripper0", o) for o in scene.objects
-        )
-        return {"ok": True, "grasped": bool(grasped)}
+        touch = {o: arm.contacts_between("gripper0", o) for o in scene.objects}
+        pads = [
+            d.geom_xpos[g]
+            for g in range(m.ngeom)
+            if "fingerpad" in (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) or "")
+        ]
+        gap = float(max(np.linalg.norm(p - q) for p in pads for q in pads))
+        grasped = req["close"] and any(touch.values())
+        return {
+            "ok": True,
+            "grasped": bool(grasped),
+            "touching": touch,
+            "pad_span_m": gap,
+        }
     return {"ok": False, "error": f"unknown cmd {c!r}"}
 
 

@@ -55,6 +55,7 @@ STEP_T, STEP_R = (
 TRACK_HZ = 20  # paper A.7
 HELD_CLEAR = 0.02  # m: scene points this close to the held object's points leave the SDF (rekep/DEVIATIONS.md)
 GRASPED_GAP = 0.002  # m: a close that stops wider than this holds something
+IK_STEPS = 300  # damped least-squares steps an action's waypoint may take
 
 
 class Arm:
@@ -205,10 +206,17 @@ class Env:
         n = get_linear_interpolation_steps(cur, target, STEP_T, STEP_R)
         Q = [q]
         for pose in linear_interpolate_poses(cur, target, max(n, 2))[1:]:
-            r = self.ik.solve(C.mat(pose), 100, Q[-1])
+            r = self.ik.solve(C.mat(pose), IK_STEPS, Q[-1])
             if not r.success:
                 self.log["events"].append(
-                    {"t": time.time(), "ik_failed_at": pose.tolist()}
+                    {
+                        "t": time.time(),
+                        "ik_failed_at": pose.tolist(),
+                        "pos_err_m": r.position_error,
+                        "target": target.tolist(),
+                        "steps_done": len(Q) - 1,
+                        "steps": n,
+                    }
                 )
                 break
             Q.append(r.cspace_position)
@@ -356,7 +364,8 @@ def choose_grasp(env, k, radius=0.10):
             and z.min() >= env.table_z
             and env.ik.solve(T, 100).success
         ):
-            env.log["grasp"] = {
+            env.log["grasp"] = {  # the latest; every choice is kept in "grasps"
+                "t": time.time(),
                 "base_T_grasp": T.tolist(),
                 "depth_m": float(rep["depths"][i]),
                 "width_m": float(rep["widths"][i]),
@@ -366,6 +375,7 @@ def choose_grasp(env, k, radius=0.10):
                 "n": int(rep["n"]),
                 "dist_m": float(np.linalg.norm(tips[i][:3, 3] - k)),
             }
+            env.log.setdefault("grasps", []).append(env.log["grasp"])
             return tips[i]
     raise RuntimeError(
         f"none of AnyGrasp's {rep['n']} grasps near the keypoint is deep enough, faces down, clears the table and is reachable"
