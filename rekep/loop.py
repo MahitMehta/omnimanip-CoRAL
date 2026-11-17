@@ -21,7 +21,7 @@ import types
 
 import cv2
 import numpy as np
-from manip_bridge.zmq_client import SidecarClient, SidecarError
+from manip_bridge.zmq_client import SidecarClient
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation
 
@@ -91,10 +91,6 @@ class Env:
             None,
         )
         self.curobo = motion.cli(30)
-        try:  # the sim's fingertips sit short of the planner model's (sim/rekep_arm.py); the robot's don't
-            C.set_tip_offset(float(arm("info").get("tip_offset", 0.0)))
-        except SidecarError:
-            C.set_tip_offset(0.0)
         self.ik = C.IK(self.q())
         self.reset_joint_pos = self.q()
 

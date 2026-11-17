@@ -24,16 +24,6 @@ TOOL0_T_EE = motion.tool0_T_grasp(0.0)
 EE_T_TOOL0 = np.linalg.inv(TOOL0_T_EE)
 
 
-def set_tip_offset(d):
-    """An arm whose fingertips sit d behind the planner model's along the approach (the sim's gripper): the end
-    effector (fk, IK) moves back with them, so a commanded fingertip pose is where its fingertips go."""
-    global TOOL0_T_EE, EE_T_TOOL0
-    TOOL0_T_EE = (
-        motion.tool0_T_grasp(0.0) @ np.r_[np.c_[np.eye(3), [-d, 0, 0]], [[0, 0, 0, 1]]]
-    )
-    EE_T_TOOL0 = np.linalg.inv(TOOL0_T_EE)
-
-
 # m: workspace = UR5e reach around the base, from just under the table (depth noise puts table-contact points
 # ~1.5 cm under the fitted plane) up (rekep/DEVIATIONS.md)
 REACH, BELOW, HEIGHT = 0.85, 0.02, 0.5
