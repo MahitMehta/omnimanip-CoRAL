@@ -5,6 +5,7 @@ frame with the fingertips at its origin (x = approach, as ReKep's grasp cost and
 import copy
 from types import SimpleNamespace
 
+import cv2
 import numpy as np
 import torch
 from keypoint_proposal import KeypointProposer
@@ -95,9 +96,31 @@ class Proposer(KeypointProposer):
         self, rgb, candidate_pixels, candidate_rigid_group_ids, masks, features_flat
     ):
         self.pixels, self.groups = candidate_pixels, candidate_rigid_group_ids
-        return super()._project_keypoints_to_img(
-            rgb, candidate_pixels, candidate_rigid_group_ids, masks, features_flat
+        return label_keypoints(rgb, candidate_pixels)
+
+
+def label_keypoints(rgb, pixels):
+    """ReKep's numbered keypoint boxes (red number in a white box centred on the pixel) at about half their size,
+    so a box covers less of what lies around its keypoint (rekep/DEVIATIONS.md)."""
+    img = rgb.copy()
+    for i, (r, c) in enumerate(pixels):
+        w, h = 10 + 7 * len(str(i)), 16
+        cv2.rectangle(
+            img, (c - w // 2, r - h // 2), (c + w // 2, r + h // 2), (255, 255, 255), -1
         )
+        cv2.rectangle(
+            img, (c - w // 2, r - h // 2), (c + w // 2, r + h // 2), (0, 0, 0), 1
+        )
+        cv2.putText(
+            img,
+            str(i),
+            (c - 4 * len(str(i)), r + 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            (255, 0, 0),
+            1,
+        )
+    return img
 
 
 def proposer(cfg):
