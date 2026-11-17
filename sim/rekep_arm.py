@@ -31,6 +31,7 @@ from manip_sim.execution import (
 )
 from manip_sim.scene import load_scene, make_env
 
+from omnimanip import motion, urdf_fk
 from omnimanip import shared_perception as S
 
 msgpack_numpy.patch()
@@ -51,6 +52,9 @@ MAX_DEPTH = 1.5  # m: farther has no depth, as the real cell's black backdrop (e
 # robosuite mounts its Robotiq 90 deg about the approach axis from the planner URDF's (its fingers close along the
 # URDF gripper's z): the arm's last joint runs WRIST_OFF ahead of the joints the loop sees, so the two grippers match
 WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
+# robosuite's Robotiq ends 0.86 cm short of the real one (the planner URDF's, gripper.py's fingertips) along the
+# approach: its gripper is moved out that far, so the sim's fingers are where the real gripper's are
+GRIPPER_EXTEND = 0.0086
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scene", default="../../sim/scenes/pour_tea_real.json")
@@ -73,6 +77,61 @@ env, _ = make_env(
 arm = LiveArm(env, SITE)
 tracker = Tracker(env, arm)
 m, d = arm.model, arm.data
+
+
+def body(name):
+    return mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, name)
+
+
+def pad_tip_gap():
+    """How far the sim's finger pads end behind the planner model's fingertips along the approach (m)."""
+    mujoco.mj_forward(m, d)
+    s_id = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, SITE)
+    z = d.site_xmat[s_id].reshape(3, 3)[:, 2]  # approach
+    tips = (
+        max(
+            (d.geom_xpos[g] - d.site_xpos[s_id]) @ z
+            + np.abs(d.geom_xmat[g].reshape(3, 3).T @ z) @ m.geom_size[g]
+            for g in range(m.ngeom)
+            if "fingerpad" in (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) or "")
+        )
+        + d.site_xpos[s_id] @ z
+    )
+    b = body("robot0_base")
+    W_B = np.eye(4)
+    W_B[:3, :3], W_B[:3, 3] = d.xmat[b].reshape(3, 3), d.xpos[b]
+    ee = W_B @ urdf_fk.fk(
+        urdf_fk.chain(motion.ROBOT_URDF),
+        dict(zip(motion.UR_JOINTS, arm.q() - WRIST_OFF)),
+    )
+    ee = ee @ motion.tool0_T_grasp(0.0)
+    return float(ee[:3, 3] @ z - tips)
+
+
+root = (
+    next(  # the gripper's root body: the first gripper0_ body whose parent is not one
+        b
+        for b in range(m.nbody)
+        if (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, b) or "").startswith(
+            "gripper0_"
+        )
+        and not (
+            mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, m.body_parentid[b]) or ""
+        ).startswith("gripper0_")
+    )
+)
+gap0 = pad_tip_gap()
+s_z = d.site_xmat[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, SITE)].reshape(3, 3)[
+    :, 2
+]
+m.body_pos[root] += d.xmat[m.body_parentid[root]].reshape(3, 3).T @ (
+    GRIPPER_EXTEND * s_z
+)
+print(
+    f"[rekep-arm sim] gripper moved {GRIPPER_EXTEND * 100:.2f} cm out: pad tips {gap0 * 100:.2f} -> "
+    f"{pad_tip_gap() * 100:.2f} cm short of the real gripper's",
+    flush=True,
+)
 
 # the camera, as sim/capture.py places it
 b = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "robot0_base")
