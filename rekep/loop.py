@@ -93,6 +93,7 @@ class Env:
             None,
             -np.asarray(packet["plane"]["n"], float),
         )
+        self.grasp_extra_depth = 0.0
         self.tracking, self.held_on, self.held_kps = tracking, [], np.zeros((0, 3))
         self.stop = threading.Event()
         self.table_z = cfg["path_solver"]["table_z"]
@@ -392,7 +393,11 @@ def choose_grasp(env, k, radius=0.10):
                 "dist_m": float(np.linalg.norm(tips[i][:3, 3] - k)),
             }
             env.log.setdefault("grasps", []).append(env.log["grasp"])
-            return tips[i]
+            G = tips[i].copy()
+            G[:3, 3] += (
+                env.grasp_extra_depth * G[:3, 0]
+            )  # --grasp-extra-depth (temporary): further in
+            return G
     raise RuntimeError(
         f"none of AnyGrasp's {rep['n']} grasps near the keypoint faces down, clears the table and is reachable"
     )
@@ -428,7 +433,7 @@ def execute(d, a, cfg, packet, masks, kp, proposer):
         depth.astype(np.float32) / 1000,
         tracking=not a.no_tracking,
     )
-    env.top_down_deg = a.top_down_deg
+    env.top_down_deg, env.grasp_extra_depth = a.top_down_deg, a.grasp_extra_depth
 
     def stop(*_):
         raise KeyboardInterrupt

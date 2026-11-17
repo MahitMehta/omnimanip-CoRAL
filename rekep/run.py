@@ -452,6 +452,12 @@ def main():
         help="a path constraint above this sends the loop back a stage (ReKep's constraint_tolerance, 0.10)",
     )
     ap.add_argument(
+        "--grasp-extra-depth",
+        type=float,
+        default=0.0,
+        help="TEMPORARY: m to move the chosen grasp further along its approach than AnyGrasp's",
+    )
+    ap.add_argument(
         "--top-down-deg",
         type=float,
         default=None,
