@@ -33,6 +33,7 @@ from omnimanip.run import dump, save
 
 from . import core as C
 
+ROBOT_SHARE = 0.5  # a SAM mask this much on the robot mask proposes no keypoints
 STAGES = ("capture", "keypoints", "program", "preview", "execute")
 PROMPT = ROOT / "third_party" / "ReKep" / "vlm_query" / "prompt_template.txt"
 CAPTURE_SRV = ROOT / "ros2_ws" / "src" / "omnimanip_interfaces" / "srv" / "Capture.srv"
@@ -154,13 +155,16 @@ def capture(d, a):
 
 def keypoints(d, a):
     """ReKep's keypoint proposal on the SAM masks; each keypoint keeps the mask it came from (its rigid group)."""
-    rgb, depth, K, packet, masks, _, T = frame(d)
+    rgb, depth, K, packet, masks, rmask, T = frame(d)
     cfg = C.config(*C.workspace(packet))
     kp = C.proposer(cfg)
     masks = masks & (depth > 0)  # pixels without depth have no point
-    # k-means needs at least k points per mask; groups stay indices into masks.npz
+    # k-means needs at least k points per mask; masks at least ROBOT_SHARE the robot's are the arm, not the scene;
+    # groups stay indices into masks.npz
+    n = masks.sum((1, 2))
+    robot = (masks & rmask).sum((1, 2)) >= ROBOT_SHARE * np.maximum(n, 1)
     keep = np.flatnonzero(
-        masks.sum((1, 2)) >= cfg["keypoint_proposer"]["num_candidates_per_mask"]
+        (n >= cfg["keypoint_proposer"]["num_candidates_per_mask"]) & ~robot
     )
     kps, img = kp.get_keypoints(rgb, C.points(depth, K, T), masks[keep])
     save(img, d / "keypoints.png")
