@@ -63,9 +63,10 @@ class Proposer(KeypointProposer):
 
     def _cluster_features(self, points, features_flat, masks):
         """Paper A.5: per mask, k-means (k = 5, cosine) on its DINOv2 features; a centroid's candidate is the mask's
-        pixel nearest it (cosine), at that pixel's point. Larger masks first, the order _merge_clusters keeps."""
+        pixel nearest it (cosine), at that pixel's point. Smaller masks first, the order _merge_clusters keeps: an object
+        part's candidate wins over a table or object candidate beside it (whose edge pixels share its features)."""
         k, out = self.config["num_candidates_per_mask"], []
-        for j in sorted(range(len(masks)), key=lambda j: -masks[j].sum()):
+        for j in sorted(range(len(masks)), key=lambda j: masks[j].sum()):
             m = masks[j]
             if m.mean() > self.config["max_mask_ratio"]:
                 continue

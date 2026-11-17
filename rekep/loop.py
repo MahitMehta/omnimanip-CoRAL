@@ -76,6 +76,7 @@ class Env:
         self, arm, cfg, packet, masks, pixels, proposer, log, speed, cap_depth
     ):
         self.speed, self.cap_depth, self.grasp_keypoint = speed, cap_depth, -1
+        self.table_z = cfg["path_solver"]["table_z"]
         self.arm, self.cfg, self.log = arm, cfg, log
         self.K, self.T = np.array(packet["K"]), np.array(packet["t_base_cam"]["T"])
         self.lo, self.hi = (
@@ -295,7 +296,8 @@ class Loop(Main):
 
 def choose_grasp(env, k, radius=0.10):
     """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre), among those IK
-    reaches and that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0). AnyGrasp sees the
+    reaches, that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0), and whose open gripper
+    stays above the table plane (the push-in to a grasp is not collision-checked). AnyGrasp sees the
     latest frame's points within `radius` of k, without the arm. -> base_T_grasp (AnyGrasp frame: x approach,
     fingertips at the origin)."""
     f = env.last
@@ -308,7 +310,11 @@ def choose_grasp(env, k, radius=0.10):
     rep = AG.anygrasp(f["rgb"], f["depth"], env.K, near)
     tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
     for i in np.argsort([np.linalg.norm(T[:3, 3] - k) for T in tips]):
-        if tips[i][2, 0] <= 0 and env.ik.solve(tips[i], 100).success:
+        T = tips[i]
+        z = C.gripper_points(
+            np.r_[T[:3, 3], Rotation.from_matrix(T[:3, :3]).as_quat()]
+        )[:, 2]
+        if T[2, 0] <= 0 and z.min() >= env.table_z and env.ik.solve(T, 100).success:
             env.log["grasp"] = {
                 "index": int(i),
                 "n": int(rep["n"]),
@@ -316,7 +322,7 @@ def choose_grasp(env, k, radius=0.10):
             }
             return tips[i]
     raise RuntimeError(
-        f"none of AnyGrasp's {rep['n']} grasps near the keypoint faces down and is reachable"
+        f"none of AnyGrasp's {rep['n']} grasps near the keypoint faces down, clears the table and is reachable"
     )
 
 
