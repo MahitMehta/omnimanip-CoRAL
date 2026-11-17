@@ -47,6 +47,7 @@ CAM_HEIGHT, FY, H, W = 0.2547, 607.4, 480, 640
 ROBOT_PREFIXES = ("robot0_", "gripper0_", "fixed_mount0_")
 SITE, CAMERA = "gripper0_right_grip_site", "frontview"
 GRIP_STEPS = 40  # control steps the gripper is held closing or opening
+MAX_DEPTH = 1.5  # m: farther has no depth, as the real cell's black backdrop (else the sim's wall wins the table fit)
 # robosuite mounts its Robotiq 90 deg about the approach axis from the planner URDF's (its fingers close along the
 # URDF gripper's z): the arm's last joint runs WRIST_OFF ahead of the joints the loop sees, so the two grippers match
 WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
@@ -129,7 +130,7 @@ def render():
     renderer.disable_segmentation_rendering()
     fr = {
         "rgb": rgb,
-        "depth": np.where(depth < 10, depth, 0).astype(np.float32),
+        "depth": np.where(depth < MAX_DEPTH, depth, 0).astype(np.float32),
         "robot_mask": np.isin(seg, robot_geoms),
         "q": arm.q() - WRIST_OFF,
         "t": float(d.time),

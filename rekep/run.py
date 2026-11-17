@@ -9,6 +9,7 @@ uv run python -m rekep.run --out DIR --from program
 import argparse
 import base64
 import json
+import time
 from pathlib import Path
 
 import cv2
@@ -444,9 +445,15 @@ def main():
     a = ap.parse_args()
     d = Path(a.out)
     d.mkdir(parents=True, exist_ok=True)
+    times = {}
     for st in STAGES[STAGES.index(a.start_stage) :]:
         if st not in a.skip and (st != "execute" or a.arm):
+            t0 = time.time()
             globals()[st](d, a)
+            times[st] = round(time.time() - t0, 1)
+            print(f"[time] {st}: {times[st]} s", flush=True)
+    print(f"[time] total: {sum(times.values()):.1f} s {times}", flush=True)
+    (d / "times.json").write_text(json.dumps(times))
 
 
 if __name__ == "__main__":
