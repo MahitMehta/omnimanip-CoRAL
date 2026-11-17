@@ -22,7 +22,7 @@ import types
 
 import cv2
 import numpy as np
-from manip_bridge.zmq_client import SidecarClient
+from manip_bridge.zmq_client import SidecarClient, SidecarError
 from scipy.spatial import KDTree
 from scipy.spatial.transform import Rotation
 
@@ -94,7 +94,7 @@ class Env:
             None,
             -np.asarray(packet["plane"]["n"], float),
         )
-        self.grasp_extra_depth = 0.0
+        self.grasp_extra_depth, self.live_grasp = 0.0, None
         self.tracking, self.held_on, self.held_kps = tracking, [], np.zeros((0, 3))
         self.stop = threading.Event()
         self.table_z = cfg["path_solver"]["table_z"]
@@ -183,7 +183,22 @@ class Env:
         E = C.mat(self.get_ee_pose())
         return self.held[1] @ E[:3, :3].T + E[:3, 3]
 
+    def refresh_grasp(self):
+        """Once per loop iteration (ReKep's environment asks its physics): an arm server that can tell (the sim's
+        `grasping`) whether the held object is still in the fingers; one that can't keeps the close's answer."""
+        if self.held is None or self.live_grasp is False:
+            return
+        try:
+            if not self.arm("grasping")["grasping"]:
+                self.log["events"].append(
+                    {"t": time.time(), "dropped": int(self.held[0])}
+                )
+                self.held = None
+        except SidecarError:
+            self.live_grasp = False
+
     def get_sdf_voxels(self, res):
+        self.refresh_grasp()  # main.Main reads the SDF once per iteration, before solving
         if not self.tracking:  # no tracker thread refreshing the frame
             self.last = self.arm.frame()
         f = self.last

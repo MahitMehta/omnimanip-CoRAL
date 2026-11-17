@@ -337,6 +337,10 @@ def handle(req):
     c = req["cmd"]
     if c == "capture":
         return capture()
+    if c == "grasping":  # the held object still between the fingers
+        return {
+            "grasping": bool(held) and arm.contacts_between("gripper0", held["o"]) > 0
+        }
     if c == "joints":
         return {"q": arm.q() - WRIST_OFF}
     if c == "move":
