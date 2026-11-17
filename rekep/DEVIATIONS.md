@@ -12,4 +12,5 @@ paper's values by `rekep/paper.patch` and `rekep/core.config`. Where the paper i
 | 4 | keypoints | Candidates within 8 cm of others are filtered out (A.5) | 6 cm | User's choice: at 8 cm (with the released code's Mean Shift merge) the teapot kept one keypoint and no spout |
 | 5 | solvers | Reachability: PyBullet IK residual | `motion.ik` (damped least squares on the planner URDF); the cost counts its steps out of 20, as the released solvers score Lula's descents | Our robot model |
 | 6 | solvers | Scene SDF: nvblox ESDF fused from all cameras at 20 Hz, arm (cuRobo) and held object (Cutie) removed | Voxels (1 cm) holding a depth point are occupied, Euclidean distance transform; robot mask and the held object's mask removed; what lies behind a surface counts as free | User's choice: our own SDF first |
-| 7 | program | GPT-4o | Gemini 3.7 Flash at minimal thinking, provider-default temperature and no token limit; the released prompt template and parser | The same VLM and settings as our OmniManip |
+| 7 | solvers | Collision cost threshold 15 cm (A.8; the path solver as the sub-goal's, A.9) | 5 cm | User's choice |
+| 8 | program | GPT-4o | Gemini 3.7 Flash at minimal thinking, provider-default temperature and no token limit; the released prompt template and parser | The same VLM and settings as our OmniManip |
