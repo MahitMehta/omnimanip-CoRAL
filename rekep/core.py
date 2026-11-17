@@ -101,7 +101,7 @@ class Proposer(KeypointProposer):
 
 def label_keypoints(rgb, pixels):
     """ReKep's numbered keypoint boxes (red number in a white box centred on the pixel) at about half their size,
-    so a box covers less of what lies around its keypoint (rekep/DEVIATIONS.md)."""
+    so a box covers less of what lies around its keypoint."""
     img = rgb.copy()
     for i, (r, c) in enumerate(pixels):
         w, h = 10 + 7 * len(str(i)), 16
