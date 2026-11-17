@@ -202,8 +202,10 @@ def program(d, a):
 def preview(d, a):
     """The program open loop on the captured frame: each stage's subgoal and path from ReKep's solvers, executed
     as main.py does (grasp: back off grasp_depth / 2, then in grasp_depth; the held object's keypoints ride with
-    the end effector), with no tracking. Draws every stage's path and subgoal gripper on keypoints.png."""
-    _, depth, K, packet, masks, rmask, T_bc = frame(d)
+    the end effector), with no tracking. preview.png: keypoints.png with each stage's path, its solved end-effector
+    point (cross) and the gripper where the stage ends (at the grasp itself for a grasp stage), beside top and side
+    views of the same."""
+    rgb, depth, K, packet, masks, rmask, T_bc = frame(d)
     kp = json.loads((d / "keypoints.json").read_text())
     meta = json.loads((d / "program" / "metadata.json").read_text())
     lo, hi = C.workspace(packet)
@@ -232,7 +234,8 @@ def preview(d, a):
         }
         for s in range(1, meta["num_stages"] + 1)
     }
-    pose, held_pts, report = C.ee_pose(q), np.zeros((0, 3)), []
+    pose, held_pts, report, drawn = C.ee_pose(q), np.zeros((0, 3)), [], []
+    kps0 = kps.copy()
     img = rgb_of(d, "keypoints.png")
     cam_T_base = np.linalg.inv(T_bc)
     for s in range(1, meta["num_stages"] + 1):
@@ -257,6 +260,7 @@ def preview(d, a):
             q,
             from_scratch=True,
         )
+        solved = goal.copy()
         if is_grasp:
             goal[:3] += Rotation.from_quat(goal[3:]).as_matrix() @ [
                 -cfg["main"]["grasp_depth"] / 2,
@@ -287,15 +291,6 @@ def preview(d, a):
         print(
             f"stage {s}: subgoal {gd['msg']} ({gd['solve_time']:.1f} s) | path {pd['msg']} ({pd['solve_time']:.1f} s)"
         )
-        color = [(255, 64, 64), (64, 200, 64), (64, 128, 255), (255, 160, 0)][
-            (s - 1) % 4
-        ]
-        uv = viz.project(K, cam_T_base, dense[:, :3]).astype(int)
-        cv2.polylines(img, [uv.reshape(-1, 1, 2)], False, color, 2)
-        for x, y in viz.project(K, cam_T_base, C.gripper_points(goal)[::40]).astype(
-            int
-        ):
-            cv2.circle(img, (int(x), int(y)), 1, color, -1)
         # execute: the held object's keypoints and points ride with the end effector
         D = C.mat(goal) @ np.linalg.inv(C.mat(pose))
         if state["held"].any():
@@ -319,8 +314,74 @@ def preview(d, a):
             held_pts = P[state["held"] & (depth > 0)]
         if is_release:
             state["held"], held_pts = np.zeros_like(rmask), np.zeros((0, 3))
+        # the path, then (grasp) the move in to the grasp; the solved point; the gripper where the stage ends
+        drawn.append(
+            (
+                np.vstack([dense[:, :3], pose[None, :3]]),
+                solved[:3],
+                C.gripper_points(pose)[::40],
+            )
+        )
+    ok = depth > 0
+    views = ortho_views(P[ok][::7], rgb[ok][::7], drawn, kps0)
+    project = lambda X: viz.project(K, cam_T_base, X)
+    img = np.hstack([draw(img, project, drawn, kps0, numbers=False), views])
     save(img, d / "preview.png")
     dump(report, d / "preview.json")
+
+
+COLORS = [(255, 64, 64), (64, 200, 64), (64, 128, 255), (255, 160, 0)]
+
+
+def draw(img, f, drawn, kps, numbers=True):
+    """Each stage's path (line), solved end-effector point (cross) and end gripper (dots), mapped to pixels by f;
+    keypoint numbers if `numbers`."""
+    for s, (path, solved, grip) in enumerate(drawn):
+        c = COLORS[s % 4]
+        cv2.polylines(img, [f(path).astype(int).reshape(-1, 1, 2)], False, c, 2)
+        for x, y in f(grip).astype(int):
+            cv2.circle(img, (int(x), int(y)), 1, c, -1)
+        x, y = f(solved[None])[0].astype(int)
+        cv2.drawMarker(img, (int(x), int(y)), c, cv2.MARKER_CROSS, 12, 2)
+    if numbers:
+        for i, (x, y) in enumerate(f(kps).astype(int)):
+            cv2.putText(
+                img,
+                str(i),
+                (int(x) - 4, int(y) + 4),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.35,
+                (200, 0, 0),
+                1,
+            )
+    return img
+
+
+def ortho_views(P, colors, drawn, kps, size=480):
+    """Top view (y right, x down: toward the camera) and side view (x right, z up) of the scene points, keypoints
+    and the stages, at one scale around the keypoints and paths."""
+    X = np.vstack([kps] + [p for p, _, _ in drawn])
+    c, r = (X.min(0) + X.max(0)) / 2, (X.max(0) - X.min(0)).max() / 2 + 0.1
+    out = []
+    for name, h, v, vs, depth_axis in (("top", 1, 0, 1, 2), ("side", 0, 2, -1, 1)):
+        f = lambda X, h=h, v=v, vs=vs: (
+            np.c_[(X[:, h] - c[h] + r), (vs * (X[:, v] - c[v]) + r)] / (2 * r) * size
+        )
+        img = np.full((size, size, 3), 255, np.uint8)
+        o = np.argsort(
+            P[:, depth_axis] * (1 if name == "top" else -1)
+        )  # nearer the viewer drawn last
+        uv = f(P[o]).astype(int)
+        m = np.all((uv >= 0) & (uv < size), axis=1)
+        img[uv[m, 1], uv[m, 0]] = colors[o][m]
+        draw(img, f, drawn, kps)
+        cv2.putText(img, name, (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+        out.append(
+            cv2.copyMakeBorder(
+                img[:, :-2], 0, 0, 2, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0)
+            )
+        )
+    return np.hstack(out)
 
 
 def main():
