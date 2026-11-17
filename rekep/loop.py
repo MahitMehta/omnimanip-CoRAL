@@ -13,6 +13,7 @@ Arm server protocol (msgpack, REQ/REP; frames on port + 1 so they keep coming du
 """
 
 import json
+import signal
 import sys
 import threading
 import time
@@ -316,6 +317,11 @@ def choose_grasp(env, k, radius=0.10):
         )[:, 2]
         if T[2, 0] <= 0 and z.min() >= env.table_z and env.ik.solve(T, 100).success:
             env.log["grasp"] = {
+                "base_T_grasp": T.tolist(),
+                "depth_m": float(rep["depths"][i]),
+                "width_m": float(rep["widths"][i]),
+                "score": float(rep["scores"][i]),
+                "keypoint": k.tolist(),
                 "index": int(i),
                 "n": int(rep["n"]),
                 "dist_m": float(np.linalg.norm(tips[i][:3, 3] - k)),
@@ -355,6 +361,11 @@ def execute(d, a, cfg, packet, masks, kp, proposer):
         a.speed,
         depth.astype(np.float32) / 1000,
     )
+
+    def stop(*_):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, stop)  # as Ctrl-C: exec.json is still written
     try:
         Loop(env, cfg)._execute(str(d / "program"))
         log["status"] = "completed"
