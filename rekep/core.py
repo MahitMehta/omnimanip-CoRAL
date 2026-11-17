@@ -66,8 +66,9 @@ class Proposer(KeypointProposer):
         """Paper A.5: per mask, k-means (k = 5, cosine) on its DINOv2 features; a centroid's candidate is the mask's
         pixel nearest it (cosine), at that pixel's point. Smaller masks first, the order _merge_clusters keeps: an object
         part's candidate wins over a table or object candidate beside it (whose edge pixels share its features). The
-        candidate is never a pixel just behind a nearer surface (self.behind, from occluded()), when the mask has
-        others: its feature is blurred with what is in front (e.g. table seen through a handle's loop)."""
+        candidate is never a pixel just behind a nearer surface (self.behind, from occluded()): its feature is blurred
+        with what is in front (e.g. table seen through a handle's loop); a mask with no other pixel is only seen through
+        a gap and proposes none."""
         k, out = self.config["num_candidates_per_mask"], []
         behind = torch.from_numpy(self.behind.reshape(-1)).to(features_flat.device)
         for j in sorted(range(len(masks)), key=lambda j: masks[j].sum()):
@@ -78,8 +79,9 @@ class Proposer(KeypointProposer):
             F = torch.nn.functional.normalize(features_flat[sel].float(), dim=-1)
             S = F @ cosine_kmeans(F, k).T
             hid = behind[sel]
-            if not hid.all():
-                S[hid] = -torch.inf
+            if hid.all():
+                continue
+            S[hid] = -torch.inf
             best = S.argmax(0).cpu().numpy()
             out += [(points[m][i], np.argwhere(m)[i], j) for i in best]
         kps, pxs, ids = (np.array(x) for x in zip(*out))
