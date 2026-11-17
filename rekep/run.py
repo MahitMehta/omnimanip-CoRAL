@@ -444,6 +444,11 @@ def main():
     ap.add_argument(
         "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
     )
+    ap.add_argument(
+        "--no-tracking",
+        action="store_true",
+        help="execute without the point tracker: the planning frame's keypoints, the held object's riding with the gripper",
+    )
     ap.add_argument("--from", dest="start_stage", choices=STAGES, default=STAGES[0])
     ap.add_argument(
         "--skip", nargs="*", choices=STAGES, default=[], help="stages not to run"

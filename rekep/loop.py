@@ -74,9 +74,20 @@ class Env:
     """ReKep's environment interface (environment.ReKepOGEnv's methods main.Main uses) on an arm server."""
 
     def __init__(
-        self, arm, cfg, packet, masks, pixels, proposer, log, speed, cap_depth
+        self,
+        arm,
+        cfg,
+        packet,
+        masks,
+        pixels,
+        proposer,
+        log,
+        speed,
+        cap_depth,
+        tracking=True,
     ):
         self.speed, self.cap_depth, self.grasp_keypoint = speed, cap_depth, -1
+        self.tracking, self.held_on, self.held_kps = tracking, [], np.zeros((0, 3))
         self.stop = threading.Event()
         self.table_z = cfg["path_solver"]["table_z"]
         self.arm, self.cfg, self.log = arm, cfg, log
@@ -102,6 +113,12 @@ class Env:
             for p in self.pixels
         ]
         f = self.arm.frame()
+        if (
+            not self.tracking
+        ):  # the planning frame's keypoints; the held object's ride with the gripper
+            self.last, self.kps = f, np.array(keypoints, float)
+            self.kps0 = self.kps.copy()
+            return
         self.last, self.kps = f, self.tracker.start(f["rgb"], f["depth"], keypoints)
         self.kps0 = self.kps.copy()
         threading.Thread(target=self._track, daemon=True).start()
@@ -117,7 +134,11 @@ class Env:
             time.sleep(max(0.0, 1 / TRACK_HZ - (time.time() - t0)))
 
     def get_keypoint_positions(self):
-        return self.kps.copy()
+        K = self.kps.copy()
+        if not self.tracking and self.held is not None:
+            E = C.mat(self.get_ee_pose())
+            K[self.held_on] = self.held_kps @ E[:3, :3].T + E[:3, 3]
+        return K
 
     # --- robot state
     def q(self):
@@ -155,6 +176,8 @@ class Env:
         return self.held[1] @ E[:3, :3].T + E[:3, 3]
 
     def get_sdf_voxels(self, res):
+        if not self.tracking:  # no tracker thread refreshing the frame
+            self.last = self.arm.frame()
         f = self.last
         P = C.points(f["depth"], self.K, self.T)[
             (f["depth"] > 0) & ~self._robot_mask(f)
@@ -213,11 +236,16 @@ class Env:
             P = P + (self.kps[on] - self.kps0[on]).mean(0)
             E = np.linalg.inv(C.mat(self.get_ee_pose()))
             self.held = (obj, P @ E[:3, :3].T + E[:3, 3])
+            self.held_on, self.held_kps = on, self.kps[on] @ E[:3, :3].T + E[:3, 3]
 
     def open_gripper(self):
         self.log["events"].append(
             {"t": time.time(), "open": self.arm("gripper", close=False)}
         )
+        if (
+            not self.tracking
+        ):  # the released object's keypoints stay where the gripper left them
+            self.kps = self.get_keypoint_positions()
         self.held = None
 
     def get_gripper_open_action(self):
@@ -372,6 +400,7 @@ def execute(d, a, cfg, packet, masks, kp, proposer):
         log,
         a.speed,
         depth.astype(np.float32) / 1000,
+        tracking=not a.no_tracking,
     )
 
     def stop(*_):

@@ -1,7 +1,9 @@
 """ReKep's point tracker (paper A.7) on our one camera: DINOv2 features as in keypoint proposal (A.5); each keypoint's
 reference feature is the mean feature of the points within 2 cm of it, fixed for the task; each frame, the 100 pixels
 most cosine-similar to it (at least 0.6), outliers rejected by median deviation (m = 2), their mean point; a uniform
-filter over the last 10 positions."""
+filter over the last 10 positions. A keypoint only matches points within GATE of its last position (the paper
+searches the whole image; alike parts of other objects, e.g. a cup's handle for a teapot's, pulled keypoints onto
+them)."""
 
 from collections import deque
 
@@ -11,6 +13,7 @@ import torch
 from . import core as C
 
 REF_RADIUS, TOP, MIN_SIM, M_DEV, WINDOW = 0.02, 100, 0.6, 2.0, 10  # paper A.7
+GATE = 0.10  # m
 
 
 class Tracker:
@@ -48,6 +51,13 @@ class Tracker:
     def update(self, rgb, depth):
         F, P = self._features(rgb, depth)
         sim = F @ self.ref.T  # pixels x keypoints
+        far = (
+            torch.cdist(
+                torch.from_numpy(P).to(sim), torch.from_numpy(self.hist[-1]).to(sim)
+            )
+            > GATE
+        )
+        sim = sim.masked_fill(far, -torch.inf)
         val, idx = sim.topk(min(TOP, len(F)), dim=0)
         val, idx = val.cpu().numpy(), idx.cpu().numpy()
         now = self.hist[-1].copy()
