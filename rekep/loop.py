@@ -347,12 +347,11 @@ class Loop(Main):
 
 def choose_grasp(env, k, radius=0.10):
     """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre), among those IK
-    reaches, that face down as the sub-goal's rotation bounds require (A.8:
-    approach z <= 0), and whose open gripper
-    stays above the table plane (the push-in to a grasp is not collision-checked). AnyGrasp sees the
-    latest frame's points within `radius` of k, without the arm, and returns its detections (after its NMS and
-    scoring; its dense mode's every proposal includes millimetre-deep, near-zero-score ones). -> base_T_grasp (AnyGrasp frame: x approach,
-    fingertips at the origin)."""
+    reaches, that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0), inside the
+    --top-down-deg cone if set, and whose open gripper stays above the table plane (the push-in to a grasp is not
+    collision-checked). AnyGrasp sees the latest frame's points within `radius` of k, without the arm: its detections
+    (after its NMS and scoring) first, its dense proposals when none of those passes (its output varies call to call).
+    -> base_T_grasp (AnyGrasp frame: x approach, fingertips at the origin), --grasp-extra-depth further in."""
     f = env.last
     P = C.points(f["depth"], env.K, env.T)
     near = (
@@ -365,46 +364,47 @@ def choose_grasp(env, k, radius=0.10):
         env.top_down_deg is not None
     ):  # straight down the table's normal, as OmniManip's --top-down-deg
         steer = {"approach": env.down_cam, "approach_deg": env.top_down_deg}
-    rep = AG.anygrasp(
-        f["rgb"], f["depth"], env.K, near, dense=False, **steer
-    )  # its detector output, not every proposal
     down = env.T[:3, :3] @ env.down_cam
-    tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
-    for i in np.argsort([np.linalg.norm(T[:3, 3] - k) for T in tips]):
-        T = tips[i]
-        z = C.gripper_points(
-            np.r_[T[:3, 3], Rotation.from_matrix(T[:3, :3]).as_quat()]
-        )[:, 2]
-        cone = (
-            env.top_down_deg is None
-            or np.degrees(np.arccos(np.clip(T[:3, 0] @ down, -1, 1)))
-            <= env.top_down_deg
-        )
-        if (
-            cone
-            and T[2, 0] <= 0
-            and z.min() >= env.table_z
-            and env.ik.solve(T, 100).success
-        ):
-            env.log["grasp"] = {  # the latest; every choice is kept in "grasps"
-                "t": time.time(),
-                "base_T_grasp": T.tolist(),
-                "depth_m": float(rep["depths"][i]),
-                "width_m": float(rep["widths"][i]),
-                "score": float(rep["scores"][i]),
-                "keypoint": k.tolist(),
-                "index": int(i),
-                "n": int(rep["n"]),
-                "dist_m": float(np.linalg.norm(tips[i][:3, 3] - k)),
-            }
-            env.log.setdefault("grasps", []).append(env.log["grasp"])
-            G = tips[i].copy()
-            G[:3, 3] += (
-                env.grasp_extra_depth * G[:3, 0]
-            )  # --grasp-extra-depth (temporary): further in
-            return G
+    seen = []
+    for dense in (False, True):
+        rep = AG.anygrasp(f["rgb"], f["depth"], env.K, near, dense=dense, **steer)
+        seen.append(rep["n"])
+        tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
+        for i in np.argsort([np.linalg.norm(T[:3, 3] - k) for T in tips]):
+            T = tips[i]
+            z = C.gripper_points(
+                np.r_[T[:3, 3], Rotation.from_matrix(T[:3, :3]).as_quat()]
+            )[:, 2]
+            off = np.degrees(np.arccos(np.clip(T[:3, 0] @ down, -1, 1)))
+            cone = env.top_down_deg is None or off <= env.top_down_deg
+            if (
+                cone
+                and T[2, 0] <= 0
+                and z.min() >= env.table_z
+                and env.ik.solve(T, 100).success
+            ):
+                env.log["grasp"] = {  # the latest; every choice is kept in "grasps"
+                    "t": time.time(),
+                    "base_T_grasp": T.tolist(),
+                    "dense": dense,
+                    "off_vertical_deg": float(off),
+                    "depth_m": float(rep["depths"][i]),
+                    "width_m": float(rep["widths"][i]),
+                    "score": float(rep["scores"][i]),
+                    "keypoint": k.tolist(),
+                    "index": int(i),
+                    "n": int(rep["n"]),
+                    "dist_m": float(np.linalg.norm(T[:3, 3] - k)),
+                }
+                env.log.setdefault("grasps", []).append(env.log["grasp"])
+                G = T.copy()
+                G[:3, 3] += (
+                    env.grasp_extra_depth * G[:3, 0]
+                )  # --grasp-extra-depth (temporary): further in
+                return G
     raise RuntimeError(
-        f"none of AnyGrasp's {rep['n']} grasps near the keypoint faces down, clears the table and is reachable"
+        f"none of AnyGrasp's grasps near the keypoint ({seen[0]} detections, {seen[1]} dense) faces down, "
+        "clears the table and is reachable"
     )
 
 
