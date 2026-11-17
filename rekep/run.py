@@ -445,6 +445,12 @@ def main():
         "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
     )
     ap.add_argument(
+        "--top-down-deg",
+        type=float,
+        default=None,
+        help="grasps only within this many degrees of straight down the table's normal (AnyGrasp steered, as OmniManip's)",
+    )
+    ap.add_argument(
         "--no-tracking",
         action="store_true",
         help="execute without the point tracker: the planning frame's keypoints, the held object's riding with the gripper",

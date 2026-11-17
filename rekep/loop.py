@@ -89,6 +89,10 @@ class Env:
         tracking=True,
     ):
         self.speed, self.cap_depth, self.grasp_keypoint = speed, cap_depth, -1
+        self.top_down_deg, self.down_cam = (
+            None,
+            -np.asarray(packet["plane"]["n"], float),
+        )
         self.tracking, self.held_on, self.held_kps = tracking, [], np.zeros((0, 3))
         self.stop = threading.Event()
         self.table_z = cfg["path_solver"]["table_z"]
@@ -350,9 +354,15 @@ def choose_grasp(env, k, radius=0.10):
         & (f["depth"] > 0)
         & ~env._robot_mask(f)
     )
+    steer = {}
+    if (
+        env.top_down_deg is not None
+    ):  # straight down the table's normal, as OmniManip's --top-down-deg
+        steer = {"approach": env.down_cam, "approach_deg": env.top_down_deg}
     rep = AG.anygrasp(
-        f["rgb"], f["depth"], env.K, near, dense=False
+        f["rgb"], f["depth"], env.K, near, dense=False, **steer
     )  # its detector output, not every proposal
+    down = env.T[:3, :3] @ env.down_cam
     tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
     for i in np.argsort([np.linalg.norm(T[:3, 3] - k) for T in tips]):
         T = tips[i]
@@ -362,8 +372,14 @@ def choose_grasp(env, k, radius=0.10):
         deep = (
             rep["depths"][i] >= AG.MIN_DEPTH - 1e-6
         )  # OmniManip's real-gripper rule (its stage 15)
+        cone = (
+            env.top_down_deg is None
+            or np.degrees(np.arccos(np.clip(T[:3, 0] @ down, -1, 1)))
+            <= env.top_down_deg
+        )
         if (
             deep
+            and cone
             and T[2, 0] <= 0
             and z.min() >= env.table_z
             and env.ik.solve(T, 100).success
@@ -416,6 +432,7 @@ def execute(d, a, cfg, packet, masks, kp, proposer):
         depth.astype(np.float32) / 1000,
         tracking=not a.no_tracking,
     )
+    env.top_down_deg = a.top_down_deg
 
     def stop(*_):
         raise KeyboardInterrupt
