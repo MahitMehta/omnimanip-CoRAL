@@ -341,7 +341,7 @@ class Loop(Main):
 
 def choose_grasp(env, k, radius=0.10):
     """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre), among those IK
-    reaches, at least OmniManip's MIN_DEPTH deep, that face down as the sub-goal's rotation bounds require (A.8:
+    reaches, that face down as the sub-goal's rotation bounds require (A.8:
     approach z <= 0), and whose open gripper
     stays above the table plane (the push-in to a grasp is not collision-checked). AnyGrasp sees the
     latest frame's points within `radius` of k, without the arm, and returns its detections (after its NMS and
@@ -369,17 +369,13 @@ def choose_grasp(env, k, radius=0.10):
         z = C.gripper_points(
             np.r_[T[:3, 3], Rotation.from_matrix(T[:3, :3]).as_quat()]
         )[:, 2]
-        deep = (
-            rep["depths"][i] >= AG.MIN_DEPTH - 1e-6
-        )  # OmniManip's real-gripper rule (its stage 15)
         cone = (
             env.top_down_deg is None
             or np.degrees(np.arccos(np.clip(T[:3, 0] @ down, -1, 1)))
             <= env.top_down_deg
         )
         if (
-            deep
-            and cone
+            cone
             and T[2, 0] <= 0
             and z.min() >= env.table_z
             and env.ik.solve(T, 100).success
@@ -398,7 +394,7 @@ def choose_grasp(env, k, radius=0.10):
             env.log.setdefault("grasps", []).append(env.log["grasp"])
             return tips[i]
     raise RuntimeError(
-        f"none of AnyGrasp's {rep['n']} grasps near the keypoint is deep enough, faces down, clears the table and is reachable"
+        f"none of AnyGrasp's {rep['n']} grasps near the keypoint faces down, clears the table and is reachable"
     )
 
 
