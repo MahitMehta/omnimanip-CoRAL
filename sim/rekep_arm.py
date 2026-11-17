@@ -55,10 +55,9 @@ WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
 # robosuite's Robotiq ends 0.86 cm short of the real one (the planner URDF's, gripper.py's fingertips) along the
 # approach: its gripper is moved out that far, so the sim's fingers are where the real gripper's are
 GRIPPER_EXTEND = 0.0086
-# its finger position servos (gain 20) squeeze a closed handle with ~1.6 N, the real Robotiq with up to 60 N (we set
-# 60): their gain is scaled up (5x: 6x and more go unstable at its 2 ms step; the close's pad_force_N reports the
-# squeeze)
-GRIP_GAIN = 5.0
+# before a close the arm holds the last move's end until within SETTLE_RAD (as sim/execute.py settles), so the fingers
+# meet the object together; after first contact they keep squeezing for SQUEEZE_STEPS
+SETTLE_RAD, SETTLE_STEPS, SQUEEZE_STEPS = 0.002, 100, 15
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scene", default="../../sim/scenes/pour_tea_real.json")
@@ -131,12 +130,6 @@ s_z = d.site_xmat[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, SITE)].reshape(
 m.body_pos[root] += d.xmat[m.body_parentid[root]].reshape(3, 3).T @ (
     GRIPPER_EXTEND * s_z
 )
-for act in range(m.nu):
-    if (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_ACTUATOR, act) or "").startswith(
-        "gripper0_"
-    ):
-        m.actuator_gainprm[act][0] *= GRIP_GAIN
-        m.actuator_biasprm[act][1] *= GRIP_GAIN
 print(
     f"[rekep-arm sim] gripper moved {GRIPPER_EXTEND * 100:.2f} cm out: pad tips {gap0 * 100:.2f} -> "
     f"{pad_tip_gap() * 100:.2f} cm short of the real gripper's",
@@ -178,7 +171,7 @@ robot_geoms = [
 ]
 renderer, opt = mujoco.Renderer(m, H, W), mujoco.MjvOption()
 opt.geomgroup[0] = 0  # robosuite: group 0 = collision geoms, group 1 = visuals
-lock, latest, grip = threading.Lock(), {}, [GRIPPER_OPEN]
+lock, latest, grip, target = threading.Lock(), {}, [GRIPPER_OPEN], [None]
 video = imageio.get_writer(a.video, fps=20) if a.video else None
 viewer = None
 if a.view:
@@ -257,10 +250,27 @@ def capture():
 
 
 def hold(g):
-    grip[0], q = g, arm.q()
-    for _ in range(GRIP_STEPS):
+    q = arm.q() if target[0] is None else target[0]
+    if g == GRIPPER_CLOSE:  # settle at the last move's end first
+        for _ in range(SETTLE_STEPS):
+            if np.abs(arm.q() - q).max() <= SETTLE_RAD:
+                break
+            tracker._step(q, grip[0])
+            render()
+    grip[0], first = g, None
+    for k in range(GRIP_STEPS + SQUEEZE_STEPS):
         tracker._step(q, g)
         render()
+        if (
+            g == GRIPPER_CLOSE
+            and first is None
+            and any(arm.contacts_between("gripper0", o) for o in scene.objects)
+        ):
+            first = k
+        if (first is not None and k - first >= SQUEEZE_STEPS) or (
+            first is None and k >= GRIP_STEPS
+        ):
+            break
 
 
 held = {}  # at a close that holds: the object and its pose in the grip site's frame
@@ -330,9 +340,9 @@ def handle(req):
     if c == "joints":
         return {"q": arm.q() - WRIST_OFF}
     if c == "move":
-        st = tracker.track(
-            np.asarray(req["path"], float) + WRIST_OFF, grip[0], on_step=render
-        )
+        path = np.asarray(req["path"], float) + WRIST_OFF
+        st = tracker.track(path, grip[0], on_step=render)
+        target[0] = path[-1]
         rep = {
             "ok": not st.stalled,
             "q": arm.q() - WRIST_OFF,

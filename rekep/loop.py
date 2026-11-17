@@ -345,13 +345,15 @@ class Loop(Main):
         return path
 
 
-def choose_grasp(env, k, radius=0.10):
-    """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre), among those IK
+def choose_grasp(env, k, radius=0.10, near_m=0.01):
+    """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre): of the grasps IK
     reaches, that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0), inside the
     --top-down-deg cone if set, and whose open gripper stays above the table plane (the push-in to a grasp is not
-    collision-checked). AnyGrasp sees the latest frame's points within `radius` of k, without the arm: its detections
-    (after its NMS and scoring) first, its dense proposals when none of those passes (its output varies call to call).
-    -> base_T_grasp (AnyGrasp frame: x approach, fingertips at the origin), --grasp-extra-depth further in."""
+    collision-checked), AnyGrasp's highest-scoring within near_m of the closest one's distance (the strictly closest
+    was often a near-zero-score fingertip pinch). AnyGrasp sees the latest frame's points within `radius` of k, without
+    the arm: its detections (after its NMS and scoring) first, its dense proposals when none of those passes (its output
+    varies call to call). -> base_T_grasp (AnyGrasp frame: x approach, fingertips at the origin), --grasp-extra-depth
+    further in."""
     f = env.last
     P = C.points(f["depth"], env.K, env.T)
     near = (
@@ -370,7 +372,11 @@ def choose_grasp(env, k, radius=0.10):
         rep = AG.anygrasp(f["rgb"], f["depth"], env.K, near, dense=dense, **steer)
         seen.append(rep["n"])
         tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
-        for i in np.argsort([np.linalg.norm(T[:3, 3] - k) for T in tips]):
+        dist = np.array([np.linalg.norm(T[:3, 3] - k) for T in tips])
+        ok = []  # (index, off-vertical) of passing grasps, nearest first, up to near_m past the nearest passing one
+        for i in np.argsort(dist):
+            if ok and dist[i] > dist[ok[0][0]] + near_m:
+                break
             T = tips[i]
             z = C.gripper_points(
                 np.r_[T[:3, 3], Rotation.from_matrix(T[:3, :3]).as_quat()]
@@ -383,25 +389,32 @@ def choose_grasp(env, k, radius=0.10):
                 and z.min() >= env.table_z
                 and env.ik.solve(T, 100).success
             ):
-                env.log["grasp"] = {  # the latest; every choice is kept in "grasps"
-                    "t": time.time(),
-                    "base_T_grasp": T.tolist(),
-                    "dense": dense,
-                    "off_vertical_deg": float(off),
-                    "depth_m": float(rep["depths"][i]),
-                    "width_m": float(rep["widths"][i]),
-                    "score": float(rep["scores"][i]),
-                    "keypoint": k.tolist(),
-                    "index": int(i),
-                    "n": int(rep["n"]),
-                    "dist_m": float(np.linalg.norm(T[:3, 3] - k)),
-                }
-                env.log.setdefault("grasps", []).append(env.log["grasp"])
-                G = T.copy()
-                G[:3, 3] += (
-                    env.grasp_extra_depth * G[:3, 0]
-                )  # --grasp-extra-depth (temporary): further in
-                return G
+                ok.append((int(i), float(off)))
+        if not ok:
+            continue
+        i, off = max(ok, key=lambda o: rep["scores"][o[0]])
+        T = tips[i]
+        env.log["grasp"] = {  # the latest; every choice is kept in "grasps"
+            "t": time.time(),
+            "base_T_grasp": T.tolist(),
+            "dense": dense,
+            "off_vertical_deg": off,
+            "depth_m": float(rep["depths"][i]),
+            "width_m": float(rep["widths"][i]),
+            "score": float(rep["scores"][i]),
+            "keypoint": k.tolist(),
+            "index": i,
+            "n": int(rep["n"]),
+            "candidates": len(ok),
+            "dist_m": float(dist[i]),
+            "closest_dist_m": float(dist[ok[0][0]]),
+        }
+        env.log.setdefault("grasps", []).append(env.log["grasp"])
+        G = T.copy()
+        G[:3, 3] += (
+            env.grasp_extra_depth * G[:3, 0]
+        )  # --grasp-extra-depth (temporary): further in
+        return G
     raise RuntimeError(
         f"none of AnyGrasp's grasps near the keypoint ({seen[0]} detections, {seen[1]} dense) faces down, "
         "clears the table and is reachable"
