@@ -8,10 +8,14 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import torch
+import transform_utils as TU
 from keypoint_proposal import KeypointProposer
 from kmeans_pytorch import kmeans
+from numba import njit
+from path_solver import PathSolver
 from scipy.ndimage import distance_transform_edt
 from scipy.spatial.transform import Rotation
+from subgoal_solver import SubgoalSolver
 from utils import get_config
 
 from omnimanip import grasp as G
@@ -178,37 +182,83 @@ def gripper_points(pose):
     return V @ T[:3, :3].T + T[:3, 3]
 
 
+# --- compiled stand-ins (same results) for the solvers' hot paths: IK, rotation conversions, SDF lookup ---
 _CHAIN = motion._chain()  # base_link -> tool0: [(origin, joint name or None, axis)]
 assert [n for _, n, _ in _CHAIN if n] == motion.UR_JOINTS
 assert all(a is None or np.allclose(a, [0, 0, 1]) for _, _, a in _CHAIN)
+_O = np.array([O for O, _, _ in _CHAIN])
+_J = np.cumsum([n is not None for _, n, _ in _CHAIN]) - 1
+_J = np.where([n is not None for _, n, _ in _CHAIN], _J, -1)
 
 
-def _fk(q):
-    """motion.fk (base_T_tool0) plus each joint's position and axis in base_link, for the geometric Jacobian."""
-    T, P, A, i = np.eye(4), [], [], 0
-    for O, name, _ in _CHAIN:
-        T = T @ O
-        if name:
-            P.append(T[:3, 3])
-            A.append(T[:3, 2])
-            c, s = np.cos(q[i]), np.sin(q[i])
-            i += 1
-            T = T @ np.array([[c, -s, 0, 0], [s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
-    return T, np.array(P), np.array(A)
+@njit(cache=True)
+def _fk(q, O, J):
+    """motion.fk (base_T_tool0) plus each joint's position and z axis in base_link (the geometric Jacobian's)."""
+    T, P, A = np.eye(4), np.zeros((6, 3)), np.zeros((6, 3))
+    for k in range(O.shape[0]):
+        T = T @ O[k]
+        j = J[k]
+        if j >= 0:
+            P[j], A[j] = T[:3, 3], T[:3, 2]
+            Rz = np.eye(4)
+            Rz[0, 0] = Rz[1, 1] = np.cos(q[j])
+            Rz[1, 0] = np.sin(q[j])
+            Rz[0, 1] = -Rz[1, 0]
+            T = T @ Rz
+    return T, P, A
 
 
+@njit(cache=True)
+def _cross(a, b):
+    return np.array(
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    )
+
+
+@njit(cache=True)
 def _rotvec(R):
-    th = np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1))
-    if th > np.pi - 1e-3:
-        return Rotation.from_matrix(R).as_rotvec()
+    th = np.arccos(min(1.0, max(-1.0, (R[0, 0] + R[1, 1] + R[2, 2] - 1) / 2)))
     v = np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
-    return v / 2 if th < 1e-6 else v * th / (2 * np.sin(th))
+    if th < 1e-6:
+        return v / 2
+    if th > np.pi - 1e-3:  # axis from R + I's largest column, signed as v
+        B = R + np.eye(3)
+        c = np.argmax(np.array([B[:, i] @ B[:, i] for i in range(3)]))
+        a = B[:, c] / np.sqrt(B[:, c] @ B[:, c])
+        return a * th if a @ v >= 0 else -a * th
+    return v * th / (2 * np.sin(th))
+
+
+@njit(cache=True)
+def _ik(G, q, O, J, n_max, tol_t, tol_r, lam2):
+    """motion.ik's damped least squares, one step per descent; -> (q, descents, converged, position error)."""
+    n = 0
+    while True:
+        T, P, A = _fk(q, O, J)
+        e = np.empty(6)
+        e[:3] = G[:3, 3] - T[:3, 3]
+        e[3:] = _rotvec(
+            np.ascontiguousarray(G[:3, :3]) @ np.ascontiguousarray(T[:3, :3].T)
+        )
+        ok = np.sqrt(e[:3] @ e[:3]) < tol_t and np.sqrt(e[3:] @ e[3:]) < tol_r
+        if ok or n == n_max:
+            return q, n, ok, np.sqrt(e[:3] @ e[:3])
+        Jm = np.empty((6, 6))
+        for j in range(6):
+            Jm[:3, j] = _cross(A[j], T[:3, 3] - P[j])
+            Jm[3:, j] = A[j]
+        q = q + Jm.T @ np.linalg.solve(Jm @ Jm.T + lam2 * np.eye(6), e)
+        n += 1
 
 
 class IK:
     """ReKep's IKSolver (ik_solver.py: Lula CCD on the Fetch) on our planner URDF: motion.ik's damped least squares
-    and tolerances with the Jacobian from the joint axes (one forward pass per descent), from initial_joint_pos (q0
-    when None, as in the solvers' warm-up)."""
+    and tolerances with the Jacobian from the joint axes, compiled; from initial_joint_pos (q0 when None, as in the
+    solvers' warm-up)."""
 
     def __init__(self, q0, tol_t=1e-4, tol_r=1e-3, damping=0.01):
         self.q0, self.tol_t, self.tol_r, self.lam2 = (
@@ -219,24 +269,121 @@ class IK:
         )
 
     def solve(self, target_pose_homo, max_iterations=20, initial_joint_pos=None, **_):
-        G = np.asarray(target_pose_homo) @ EE_T_TOOL0
-        q = np.array(self.q0 if initial_joint_pos is None else initial_joint_pos, float)
-        n, ok = 0, False
-        while True:
-            T, P, A = _fk(q)
-            e = np.r_[G[:3, 3] - T[:3, 3], _rotvec(G[:3, :3] @ T[:3, :3].T)]
-            ok = (
-                np.linalg.norm(e[:3]) < self.tol_t
-                and np.linalg.norm(e[3:]) < self.tol_r
-            )
-            if ok or n == max_iterations:
-                break
-            J = np.vstack([np.cross(A, T[:3, 3] - P).T, A.T])
-            q = q + J.T @ np.linalg.solve(J @ J.T + self.lam2 * np.eye(6), e)
-            n += 1
-        return SimpleNamespace(
-            success=ok,
-            num_descents=n,
-            cspace_position=q,
-            position_error=float(np.linalg.norm(e[:3])),
+        G = np.ascontiguousarray(np.asarray(target_pose_homo, float) @ EE_T_TOOL0)
+        q0 = np.array(
+            self.q0 if initial_joint_pos is None else initial_joint_pos, float
         )
+        q, n, ok, err = _ik(
+            G, q0, _O, _J, max_iterations, self.tol_t, self.tol_r, self.lam2
+        )
+        return SimpleNamespace(
+            success=ok, num_descents=n, cspace_position=q, position_error=err
+        )
+
+
+@njit(cache=True)
+def _quat2mat(q):
+    x, y, z, w = q / np.sqrt(q @ q)
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+
+
+@njit(cache=True)
+def _mat2quat(m):
+    """scipy's Rotation.from_matrix(m).as_quat() for a rotation matrix (its branch on the largest of the diagonal
+    and the trace, no sign canonicalisation)."""
+    d = np.array([m[0, 0], m[1, 1], m[2, 2], m[0, 0] + m[1, 1] + m[2, 2]])
+    c, q = np.argmax(d), np.empty(4)
+    if c != 3:
+        i, j, k = c, (c + 1) % 3, (c + 2) % 3
+        q[i] = 1 - d[3] + 2 * m[i, i]
+        q[j] = m[j, i] + m[i, j]
+        q[k] = m[k, i] + m[i, k]
+        q[3] = m[k, j] - m[j, k]
+    else:
+        q[0], q[1], q[2], q[3] = (
+            m[2, 1] - m[1, 2],
+            m[0, 2] - m[2, 0],
+            m[1, 0] - m[0, 1],
+            1 + d[3],
+        )
+    return q / np.sqrt(q @ q)
+
+
+@njit(cache=True)
+def _euler2quat(e):
+    """scipy's Rotation.from_euler("xyz", e).as_quat(): extrinsic x, then y, then z."""
+    cx, sx, cy, sy, cz, sz = (
+        np.cos(e[0] / 2),
+        np.sin(e[0] / 2),
+        np.cos(e[1] / 2),
+        np.sin(e[1] / 2),
+        np.cos(e[2] / 2),
+        np.sin(e[2] / 2),
+    )
+    return np.array(
+        [
+            sx * cy * cz - cx * sy * sz,
+            cx * sy * cz + sx * cy * sz,
+            cx * cy * sz - sx * sy * cz,
+            cx * cy * cz + sx * sy * sz,
+        ]
+    )
+
+
+@njit(cache=True)
+def _trilinear(V, lo, step, X):
+    """scipy RegularGridInterpolator (linear, fill 0 outside) on the grid lo + i * step."""
+    out = np.zeros(X.shape[0])
+    n = V.shape
+    for p in range(X.shape[0]):
+        f = (X[p] - lo) / step
+        if np.any(f < 0) or f[0] > n[0] - 1 or f[1] > n[1] - 1 or f[2] > n[2] - 1:
+            continue
+        i = np.minimum(
+            np.floor(f).astype(np.int64), np.array([n[0] - 2, n[1] - 2, n[2] - 2])
+        )
+        t = f - i
+        acc = 0.0
+        for a in range(2):
+            for b in range(2):
+                for c in range(2):
+                    w = (
+                        (t[0] if a else 1 - t[0])
+                        * (t[1] if b else 1 - t[1])
+                        * (t[2] if c else 1 - t[2])
+                    )
+                    acc += w * V[i[0] + a, i[1] + b, i[2] + c]
+        out[p] = acc
+    return out
+
+
+def _one_or_scipy(fast, slow, k):
+    """A transform_utils conversion: the compiled one for a single input of k numbers, else the original."""
+    return lambda x: (
+        fast(np.ascontiguousarray(x, float)) if np.ndim(x) == k else slow(x)
+    )
+
+
+def _setup_sdf(self, sdf_voxels):
+    """The solvers' _setup_sdf (a RegularGridInterpolator on linspace(bounds_min, bounds_max, shape)), compiled."""
+    lo, hi = (
+        np.array(self.config["bounds_min"], float),
+        np.array(self.config["bounds_max"], float),
+    )
+    V, step = (
+        np.ascontiguousarray(sdf_voxels, float),
+        (hi - lo) / (np.array(sdf_voxels.shape) - 1),
+    )
+    return lambda X: _trilinear(V, lo, step, np.ascontiguousarray(X, float))
+
+
+TU.quat2mat = _one_or_scipy(_quat2mat, TU.quat2mat, 1)
+TU.mat2quat = _one_or_scipy(_mat2quat, TU.mat2quat, 2)
+TU.euler2quat = _one_or_scipy(_euler2quat, TU.euler2quat, 1)
+SubgoalSolver._setup_sdf = PathSolver._setup_sdf = _setup_sdf  # type: ignore[assignment]
