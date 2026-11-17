@@ -442,6 +442,11 @@ def main():
     ap.add_argument(
         "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
     )
+    ap.add_argument(
+        "--preview",
+        action="store_true",
+        help="also run the open-loop preview (every stage's solves on the captured frame, ~1 min); --from preview runs it too",
+    )
     ap.add_argument("--from", dest="start_stage", choices=STAGES, default=STAGES[0])
     ap.add_argument(
         "--skip", nargs="*", choices=STAGES, default=[], help="stages not to run"
@@ -451,7 +456,11 @@ def main():
     d.mkdir(parents=True, exist_ok=True)
     times = {}
     for st in STAGES[STAGES.index(a.start_stage) :]:
-        if st not in a.skip and (st != "execute" or a.arm):
+        if (
+            st not in a.skip
+            and (st != "execute" or a.arm)
+            and (st != "preview" or a.preview or a.start_stage == st)
+        ):
             t0 = time.time()
             globals()[st](d, a)
             times[st] = round(time.time() - t0, 1)
