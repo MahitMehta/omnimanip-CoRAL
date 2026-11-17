@@ -134,12 +134,16 @@ def proposer(cfg):
     return kp
 
 
-def object_mask(masks, px, max_ratio):
-    """The object a keypoint belongs to (its rigid group once grasped): the largest SAM mask holding its pixel (row,
-    col), among masks the proposer clusters (at most max_ratio of the image)."""
+def object_id(masks, px, max_ratio):
+    """The object a keypoint belongs to (its rigid group once grasped): the index of the largest SAM mask holding its
+    pixel (row, col), among masks the proposer clusters (at most max_ratio of the image)."""
     area = masks.sum((1, 2))
     ok = masks[:, px[0], px[1]] & (area <= max_ratio * masks[0].size)
-    return masks[np.flatnonzero(ok)[np.argmax(area[ok])]]
+    return int(np.flatnonzero(ok)[np.argmax(area[ok])])
+
+
+def object_mask(masks, px, max_ratio):
+    return masks[object_id(masks, px, max_ratio)]
 
 
 def points(depth, K, T_base_cam):

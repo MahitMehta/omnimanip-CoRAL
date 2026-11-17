@@ -21,6 +21,7 @@ setup(
             "bridge = omnimanip_ros.bridge_node:main",
             "run_task = omnimanip_ros.run_task:main",
             "execute = omnimanip_ros.execute_node:main",
+            "rekep_arm = omnimanip_ros.rekep_arm:main",
         ],
     },
 )

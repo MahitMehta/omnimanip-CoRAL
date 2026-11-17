@@ -32,7 +32,7 @@ from omnimanip.run import dump, save
 
 from . import core as C
 
-STAGES = ("capture", "keypoints", "program", "preview")
+STAGES = ("capture", "keypoints", "program", "preview", "execute")
 PROMPT = ROOT / "third_party" / "ReKep" / "vlm_query" / "prompt_template.txt"
 CAPTURE_SRV = ROOT / "ros2_ws" / "src" / "omnimanip_interfaces" / "srv" / "Capture.srv"
 
@@ -62,6 +62,23 @@ def run_packet(run):
         S.imread(run / "depth_mm.png", cv2.IMREAD_UNCHANGED).astype(np.float32) / 1000
     )
     return rgb_of(run, "rgb.png"), depth, np.array(packet["K"]), packet, rmask
+
+
+def arm_packet(addr):
+    """The planning frame from an arm server (rekep/loop.py): the robot's /omnimanip/capture, or the sim's.
+    -> (rgb, depth (m), K, packet, robot mask or None)."""
+    from .loop import Arm
+
+    r = Arm(addr)("capture")
+    packet = json.loads(r["packet"]) if isinstance(r["packet"], str) else r["packet"]
+    m = np.asarray(r["robot_mask"], bool)
+    return (
+        np.asarray(r["rgb"], np.uint8),
+        np.asarray(r["depth"], np.float32),
+        np.array(r["K"]),
+        packet,
+        (m if m.size else None),
+    )
 
 
 def rgb_of(d, name):
@@ -115,7 +132,9 @@ def masks_sheet(rgb, masks, max_ratio=0.5, cols=6, s=0.4):
 def capture(d, a):
     """Frame packet (OmniManip's stage 1), then every mask in the scene from SAM (paper A.5)."""
     rgb, depth, _, packet, rmask = (
-        run_packet(a.run)
+        arm_packet(a.arm)
+        if a.arm
+        else run_packet(a.run)
         if a.run
         else S.sim_packet(a.sim)
         if a.sim
@@ -384,6 +403,16 @@ def ortho_views(P, colors, drawn, kps, size=480):
     return np.hstack(out)
 
 
+def execute(d, a):
+    """ReKep's closed loop (rekep/loop.py) on the arm server --arm, from this run's keypoints and program."""
+    from . import loop
+
+    _, _, _, packet, masks, _, _ = frame(d)
+    cfg = C.config(*C.workspace(packet))
+    kp = json.loads((d / "keypoints.json").read_text())
+    loop.execute(d, a, cfg, packet, masks, kp, C.proposer(cfg))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -400,12 +429,24 @@ def main():
         default=None,
         help="an OmniManip run dir: its captured frame instead of the bag",
     )
+    ap.add_argument(
+        "--arm",
+        default=None,
+        help="an arm server (rekep/loop.py), e.g. tcp://127.0.0.1:5684: capture from it, and execute on it",
+    )
+    ap.add_argument(
+        "--speed", type=float, default=0.1, help="fraction of the UR5e joint limits"
+    )
     ap.add_argument("--from", dest="start_stage", choices=STAGES, default=STAGES[0])
+    ap.add_argument(
+        "--skip", nargs="*", choices=STAGES, default=[], help="stages not to run"
+    )
     a = ap.parse_args()
     d = Path(a.out)
     d.mkdir(parents=True, exist_ok=True)
     for st in STAGES[STAGES.index(a.start_stage) :]:
-        globals()[st](d, a)
+        if st not in a.skip and (st != "execute" or a.arm):
+            globals()[st](d, a)
 
 
 if __name__ == "__main__":
