@@ -55,6 +55,9 @@ WRIST_OFF = np.r_[0, 0, 0, 0, 0, np.pi / 2]
 # robosuite's Robotiq ends 0.86 cm short of the real one (the planner URDF's, gripper.py's fingertips) along the
 # approach: its gripper is moved out that far, so the sim's fingers are where the real gripper's are
 GRIPPER_EXTEND = 0.0086
+# its finger position servos (gain 20) squeeze a closed handle with ~1.6 N, the real Robotiq with up to 60 N (we set
+# 60): their gain is scaled up so a close squeezes at least 10 N (the close's pad_force_N reports it)
+GRIP_GAIN = 10.0
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scene", default="../../sim/scenes/pour_tea_real.json")
@@ -127,6 +130,12 @@ s_z = d.site_xmat[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, SITE)].reshape(
 m.body_pos[root] += d.xmat[m.body_parentid[root]].reshape(3, 3).T @ (
     GRIPPER_EXTEND * s_z
 )
+for act in range(m.nu):
+    if (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_ACTUATOR, act) or "").startswith(
+        "gripper0_"
+    ):
+        m.actuator_gainprm[act][0] *= GRIP_GAIN
+        m.actuator_biasprm[act][1] *= GRIP_GAIN
 print(
     f"[rekep-arm sim] gripper moved {GRIPPER_EXTEND * 100:.2f} cm out: pad tips {gap0 * 100:.2f} -> "
     f"{pad_tip_gap() * 100:.2f} cm short of the real gripper's",
