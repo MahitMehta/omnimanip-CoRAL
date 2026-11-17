@@ -12,7 +12,7 @@ import transform_utils as TU
 from keypoint_proposal import KeypointProposer
 from numba import njit
 from path_solver import PathSolver
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, minimum_filter
 from scipy.spatial.transform import Rotation
 from subgoal_solver import SubgoalSolver
 from utils import get_config
@@ -52,7 +52,9 @@ def config(lo, hi):
 
 class Proposer(KeypointProposer):
     """ReKep's KeypointProposer on a list of (overlapping) SAM masks instead of a label image, keeping each final
-    keypoint's mask index (its rigid group, paper A.5) and pixel."""
+    keypoint's mask index (its rigid group, paper A.5) and pixel. Set `behind` (occluded(depth)) before get_keypoints."""
+
+    behind: np.ndarray
 
     def _preprocess(self, rgb, points, masks):
         t, rgb, points, _, info = super()._preprocess(
@@ -63,15 +65,22 @@ class Proposer(KeypointProposer):
     def _cluster_features(self, points, features_flat, masks):
         """Paper A.5: per mask, k-means (k = 5, cosine) on its DINOv2 features; a centroid's candidate is the mask's
         pixel nearest it (cosine), at that pixel's point. Smaller masks first, the order _merge_clusters keeps: an object
-        part's candidate wins over a table or object candidate beside it (whose edge pixels share its features)."""
+        part's candidate wins over a table or object candidate beside it (whose edge pixels share its features). The
+        candidate is never a pixel just behind a nearer surface (self.behind, from occluded()), when the mask has
+        others: its feature is blurred with what is in front (e.g. table seen through a handle's loop)."""
         k, out = self.config["num_candidates_per_mask"], []
+        behind = torch.from_numpy(self.behind.reshape(-1)).to(features_flat.device)
         for j in sorted(range(len(masks)), key=lambda j: masks[j].sum()):
             m = masks[j]
             if m.mean() > self.config["max_mask_ratio"]:
                 continue
             sel = torch.from_numpy(m.reshape(-1)).to(features_flat.device)
             F = torch.nn.functional.normalize(features_flat[sel].float(), dim=-1)
-            best = (F @ cosine_kmeans(F, k).T).argmax(0).cpu().numpy()
+            S = F @ cosine_kmeans(F, k).T
+            hid = behind[sel]
+            if not hid.all():
+                S[hid] = -torch.inf
+            best = S.argmax(0).cpu().numpy()
             out += [(points[m][i], np.argwhere(m)[i], j) for i in best]
         kps, pxs, ids = (np.array(x) for x in zip(*out))
         return kps, pxs, ids
@@ -96,11 +105,11 @@ class Proposer(KeypointProposer):
 
 
 def label_keypoints(rgb, pixels):
-    """ReKep's numbered keypoint boxes (red number in a white box centred on the pixel), 12 px tall (ReKep's are 30),
+    """ReKep's numbered keypoint boxes (red number in a white box centred on the pixel), 14 px tall (ReKep's are 30),
     so a box covers less of what lies around its keypoint."""
     img = rgb.copy()
     for i, (r, c) in enumerate(pixels):
-        w, h = 6 + 6 * len(str(i)), 12
+        w, h = 8 + 6 * len(str(i)), 14
         cv2.rectangle(
             img, (c - w // 2, r - h // 2), (c + w // 2, r + h // 2), (255, 255, 255), -1
         )
@@ -110,13 +119,22 @@ def label_keypoints(rgb, pixels):
         cv2.putText(
             img,
             str(i),
-            (c - 3 * len(str(i)), r + 4),
+            (c - 3 * len(str(i)), r + 5),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.3,
+            0.35,
             (255, 0, 0),
             1,
         )
     return img
+
+
+EDGE_PX, EDGE_M = 14, 0.05  # one DINOv2 patch; a surface this much nearer
+
+
+def occluded(depth):
+    """Pixels with a surface at least EDGE_M nearer within EDGE_PX (no depth counts as far)."""
+    D = np.where(depth > 0, depth, 1e6)
+    return D - minimum_filter(D, size=2 * EDGE_PX + 1) > EDGE_M
 
 
 def cosine_kmeans(F, k, iters=100, tol=1e-4):

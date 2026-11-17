@@ -168,6 +168,7 @@ def keypoints(d, a):
     keep = np.flatnonzero(
         (n >= cfg["keypoint_proposer"]["num_candidates_per_mask"]) & ~robot
     )
+    kp.behind = C.occluded(depth)
     kps, img = kp.get_keypoints(rgb, C.points(depth, K, T), masks[keep])
     save(img, d / "keypoints.png")
     dump(
