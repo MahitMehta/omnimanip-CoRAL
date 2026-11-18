@@ -6,6 +6,7 @@ sensor_msgs/CameraInfo camera_info
 string task
 ObjectModel object
 InteractionElement element
+int32 scaffold 8                # SCAFFOLD dots along a real crop's long side, n x n on a render (run_task --scaffold)
 ---
 bool success
 string message

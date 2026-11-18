@@ -177,6 +177,7 @@ class Bridge(Node):
             task=req.task,
             object=conv.obj_of(req.object),
             element=conv.element_of(req.element),
+            scaffold=req.scaffold,
         )
         res.kind = r["kind"]
         res.points = [conv.point(p) for p in r["points"]]

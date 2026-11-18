@@ -58,9 +58,9 @@ def grid_for(shape, n=GRID[1]):
     return (n, short) if h >= w else (short, n)
 
 
-def gridded_crop(img, keep=None):
+def gridded_crop(img, keep=None, n=GRID[1]):
     """A real crop made legible for the VLM: upscaled so its long side is at least MIN_CROP_PX, then gridded with
-    grid_for(its shape). -> (gridded RGB, {(row, col): (u, v) in the ORIGINAL crop's pixels}, grid)."""
+    grid_for(its shape, n). -> (gridded RGB, {(row, col): (u, v) in the ORIGINAL crop's pixels}, grid)."""
     f = max(1.0, MIN_CROP_PX / max(img.shape[:2]))
     if f > 1:
         size = (round(img.shape[1] * f), round(img.shape[0] * f))
@@ -74,7 +74,7 @@ def gridded_crop(img, keep=None):
                 )
                 > 127
             )
-    grid = grid_for(img.shape)
+    grid = grid_for(img.shape, n)
     g, dots = scaffold(img, grid, keep)
     return (
         g,
@@ -193,18 +193,20 @@ def render_view(mesh, view, px=VIEW_PX):
     return np.asarray(color), to_canonical
 
 
-def _ask_dot(img, keep, real=False, **fields):
+def _ask_dot(img, keep, real=False, n=GRID[1], **fields):
     g, dots, grid = (
-        gridded_crop(img, keep) if real else (*scaffold(img, keep=keep), GRID)
+        gridded_crop(img, keep, n) if real else (*scaffold(img, (n, n), keep), (n, n))
     )
     rep = vlm.query("interaction_point", [g], rows=grid[0], cols=grid[1], **fields)
     return tuple(rep["Selected dot"]), dots, g, rep
 
 
-def visible_point(rgb, depth, K, mask, cam_T_can, V_can, **fields):
+def visible_point(rgb, depth, K, mask, cam_T_can, V_can, n=GRID[1], **fields):
     """Visible and tangible part: SCAFFOLD dot on the real object crop, lifted with depth."""
     im, _, (x0, y0) = crop(rgb, mask)
-    dot, dots, g, rep = _ask_dot(im, None, real=True, view="camera image", **fields)
+    dot, dots, g, rep = _ask_dot(
+        im, None, real=True, n=n, view="camera image", **fields
+    )
     u, v = dots[dot]
     p, used_mesh = lift(u + x0, v + y0, depth, K, mask, cam_T_can, V_can)
     return {
@@ -217,13 +219,15 @@ def visible_point(rgb, depth, K, mask, cam_T_can, V_can, **fields):
     }
 
 
-def invisible_point(mesh_can, **fields):
+def invisible_point(mesh_can, n=GRID[1], **fields):
     """Invisible or intangible part: a dot on an orthographic front view fixes (y, z), one on a side view
     fixes (x, z); z is averaged (onboarding notes O4)."""
     coords, dots_sel, images, reps = {}, {}, [], {}
     for view in VIEWS:
         img, to_can = render_view(mesh_can, view)
-        dot, dots, g, rep = _ask_dot(img, None, view=f"rendered {view} view", **fields)
+        dot, dots, g, rep = _ask_dot(
+            img, None, n=n, view=f"rendered {view} view", **fields
+        )
         for ax, val in to_can(*dots[dot]).items():
             coords.setdefault(ax, []).append(val)
         dots_sel[view], reps[view] = dot, rep
@@ -232,10 +236,10 @@ def invisible_point(mesh_can, **fields):
     return {"point": p, "dot": dots_sel, "vlm": reps, "images": images}
 
 
-def grasp_points(rgb, depth, K, mask, cam_T_can, V_can, **fields):
+def grasp_points(rgb, depth, K, mask, cam_T_can, V_can, n=GRID[1], **fields):
     """Grasp part: several dots on the object (only on-mask dots drawn), each lifted with depth."""
     im, m, (x0, y0) = crop(rgb, mask)
-    g, dots, grid = gridded_crop(im, m)
+    g, dots, grid = gridded_crop(im, m, n)
     rep = vlm.query("grasp_points", [g], rows=grid[0], cols=grid[1], **fields)
     sel = [tuple(d) for d in rep["Selected dots"] if tuple(d) in dots]
     pts = [
@@ -267,15 +271,20 @@ def textured_canonical_mesh(final_mesh_path, R):
     return m
 
 
-def propose(rgb, depth, K, mask, cam_T_can, final_mesh, R, element, **fields):
+def propose(
+    rgb, depth, K, mask, cam_T_can, final_mesh, R, element, n=GRID[1], **fields
+):
     """Stage 11 for one plan element: grasp dots for a grasped (passive) object, a real-crop dot for a visible
-    and tangible part, else front/side render dots. -> result + "kind" and "points" (N, 3) canonical."""
+    and tangible part, else front/side render dots; n SCAFFOLD dots along a real crop's long side and n x n on a
+    render (run_task --scaffold). -> result + "kind" and "points" (N, 3) canonical."""
     mesh_can = textured_canonical_mesh(final_mesh, R)
     if element["action"] == "grasp" and element["type"] == "passive":
-        r = grasp_points(rgb, depth, K, mask, cam_T_can, mesh_can.vertices, **fields)
+        r = grasp_points(rgb, depth, K, mask, cam_T_can, mesh_can.vertices, n, **fields)
         return {**r, "kind": "grasp"}
     if element["part_visible_and_tangible"]:
-        r = visible_point(rgb, depth, K, mask, cam_T_can, mesh_can.vertices, **fields)
+        r = visible_point(
+            rgb, depth, K, mask, cam_T_can, mesh_can.vertices, n, **fields
+        )
         return {**r, "kind": "visible", "points": r["point"][None]}
-    r = invisible_point(mesh_can, **fields)
+    r = invisible_point(mesh_can, n, **fields)
     return {**r, "kind": "invisible", "points": r["point"][None]}

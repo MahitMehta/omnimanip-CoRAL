@@ -150,6 +150,7 @@ def points(r):
         o["mesh_path"],
         o["R"],
         el,
+        r.get("scaffold") or Pt.GRID[1],
         **_fields(r, o["name"], el),
     )
     T = np.asarray(o["cam_T_can"])

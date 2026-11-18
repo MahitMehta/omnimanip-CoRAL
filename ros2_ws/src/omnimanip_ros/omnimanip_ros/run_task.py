@@ -290,6 +290,7 @@ def run(
     grasps_only=False,
     low_res_mesh=False,
     planner="curobo",
+    scaffold=8,
 ):
     for d in (
         "marks",
@@ -424,6 +425,7 @@ def run(
                     "task": task,
                     "object": models[e.object],
                     "element": e,
+                    "scaffold": scaffold,
                 },
             )
         )
@@ -692,6 +694,12 @@ def main():
         help="motion planner for the grasp reach check, recorded in grasp/grasp.json for execute: cuRobo's "
         "MotionPlanner, or our RRT-Connect on cuRobo's collision checks (omnimanip/rrt.py)",
     )
+    ap.add_argument(
+        "--scaffold",
+        type=int,
+        default=8,
+        help="SCAFFOLD grid for the interaction points: n dots along a real crop's long side, n x n on a mesh render",
+    )
     a, ros_args = ap.parse_known_args()
     a.mesh_cache = a.mesh_cache or a.low_res_mesh
     if a.ideal_grasp and not a.mesh_cache:
@@ -729,6 +737,7 @@ def main():
             grasps_only=a.grasps_only,
             low_res_mesh=a.low_res_mesh,
             planner=a.planner,
+            scaffold=a.scaffold,
         )
         if a.grasps_only:
             node.get_logger().info(
