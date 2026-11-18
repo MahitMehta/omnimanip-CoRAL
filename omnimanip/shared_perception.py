@@ -390,7 +390,7 @@ def register(
     register on it with the re-rank + Orient Anything yaw decision (decide=False: the scorer's pick, as
     run_scene --no-decide). Copies final_mesh locally. With cache_name (and the table plane): the object's cached
     mesh when it matches (mesh_cache), else generated and cached if it has no entry yet. low_res: generate with
-    LOW_RES_TRELLIS and never cache the result, so a full-resolution run can't reuse it.
+    LOW_RES_TRELLIS (cached the same way).
     -> record {cam_T_obj, fp_scorer, final_mesh (local path), decision, any6d, trellis2, mesh_cache}."""
     k, out_dir = key(mark_id), Path(out_dir)
     missed = None  # why the cached mesh wasn't used: the record's mesh_cache.why
@@ -415,7 +415,7 @@ def register(
     rec = _register_mesh(
         mark_id, rgb, depth, K, mask, arm, out_dir, decide, low_res=low_res
     )
-    if cache_name and not low_res and mesh_cache.entry(cache_name) is None:
+    if cache_name and mesh_cache.entry(cache_name) is None:
         iou = _fit_iou(rec, K, mask)
         if iou >= mesh_cache.MIN_IOU:
             meta = mesh_cache.save(

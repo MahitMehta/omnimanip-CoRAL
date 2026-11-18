@@ -667,7 +667,7 @@ def main():
         "--low-res-mesh",
         action="store_true",
         help="save VRAM and time on meshes: implies --mesh-cache; new meshes use low-resolution TRELLIS.2 settings "
-        "(shared_perception.LOW_RES_TRELLIS, needs Trellis2Server-mahit) and are not cached",
+        "(shared_perception.LOW_RES_TRELLIS, needs Trellis2Server-mahit), cached like any other",
     )
     ap.add_argument(
         "--top-down-deg",
