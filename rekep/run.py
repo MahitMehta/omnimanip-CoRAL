@@ -484,6 +484,11 @@ def main():
         action="store_true",
         help="execute without the point tracker: the planning frame's keypoints, the held object's riding with the gripper",
     )
+    ap.add_argument(
+        "--sim-mesh-grasps",
+        action="store_true",
+        help="SIM ONLY: OmniManip's privileged antipodal grasps on the grasped object's ground-truth mesh instead of AnyGrasp",
+    )
     ap.add_argument("--from", dest="start_stage", choices=STAGES, default=STAGES[0])
     ap.add_argument(
         "--skip", nargs="*", choices=STAGES, default=[], help="stages not to run"

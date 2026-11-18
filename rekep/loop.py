@@ -95,6 +95,7 @@ class Env:
             -np.asarray(packet["plane"]["n"], float),
         )
         self.grasp_extra_depth, self.live_grasp = 0.0, None
+        self.plane, self.sim_mesh = packet["plane"], False
         self.tracking, self.held_on, self.held_kps = tracking, [], np.zeros((0, 3))
         self.stop = threading.Event()
         self.table_z = cfg["path_solver"]["table_z"]
@@ -362,13 +363,14 @@ class Loop(Main):
 
 def choose_grasp(env, k, radius=0.10, near_m=0.01):
     """Paper footnote 1: AnyGrasp's grasp closest to the grasp keypoint k (its fingertips' centre): of the grasps IK
-    reaches, that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0), inside the
-    --top-down-deg cone if set, and whose open gripper stays above the table plane (the push-in to a grasp is not
-    collision-checked), AnyGrasp's highest-scoring within near_m of the closest one's distance (the strictly closest
-    was often a near-zero-score fingertip pinch). AnyGrasp sees the latest frame's points within `radius` of k, without
-    the arm: its detections (after its NMS and scoring) first, its dense proposals when none of those passes (its output
-    varies call to call). -> base_T_grasp (AnyGrasp frame: x approach, fingertips at the origin), --grasp-extra-depth
-    further in."""
+        reaches, that face down as the sub-goal's rotation bounds require (A.8: approach z <= 0), inside the
+        --top-down-deg cone if set, and whose open gripper stays above the table plane (the push-in to a grasp is not
+        collision-checked), AnyGrasp's highest-scoring within near_m of the closest one's distance (the strictly closest
+        was often a near-zero-score fingertip pinch). AnyGrasp sees the latest frame's points within `radius` of k, without
+        the arm: its detections (after its NMS and scoring) first, its dense proposals when none of those passes (its output
+        varies call to call). -> base_T_grasp (AnyGrasp frame: x approach, fingertips at the origin), --grasp-extra-depth
+        further in. SIM ONLY with --sim-mesh-grasps: OmniManip's antipodal grasps on the true mesh of the object nearest k
+    (from the sim's arm server) in place of AnyGrasp's, under the same checks."""
     f = env.last
     P = C.points(f["depth"], env.K, env.T)
     near = (
@@ -382,9 +384,24 @@ def choose_grasp(env, k, radius=0.10, near_m=0.01):
     ):  # straight down the table's normal, as OmniManip's --top-down-deg
         steer = {"approach": env.down_cam, "approach_deg": env.top_down_deg}
     down = env.T[:3, :3] @ env.down_cam
+    if env.sim_mesh:  # SIM ONLY: OmniManip's privileged antipodal grasps on the nearest object's true mesh, pose now
+        m = env.arm("mesh", point=k)
+        cam_T_obj = np.linalg.inv(env.T) @ np.asarray(m["base_T_obj"], float)
+        env.log["events"].append({"t": time.time(), "mesh": m["name"]})
+        src = [("mesh", lambda: AG.mesh_grasps(m["V"], m["F"], cam_T_obj, env.plane))]
+    else:
+        src = [
+            (
+                dense,
+                lambda dense=dense: AG.anygrasp(
+                    f["rgb"], f["depth"], env.K, near, dense=dense, **steer
+                ),
+            )
+            for dense in (False, True)
+        ]
     seen = []
-    for dense in (False, True):
-        rep = AG.anygrasp(f["rgb"], f["depth"], env.K, near, dense=dense, **steer)
+    for dense, propose in src:
+        rep = propose()
         seen.append(rep["n"])
         tips = [env.T @ AG.pose(rep, i) @ _tips(rep, i) for i in range(rep["n"])]
         dist = np.array([np.linalg.norm(T[:3, 3] - k) for T in tips])
@@ -431,7 +448,7 @@ def choose_grasp(env, k, radius=0.10, near_m=0.01):
         )  # --grasp-extra-depth (temporary): further in
         return G
     raise RuntimeError(
-        f"none of AnyGrasp's grasps near the keypoint ({seen[0]} detections, {seen[1]} dense) faces down, "
+        f"none of the grasps near the keypoint ({' + '.join(map(str, seen))}) faces down, "
         "clears the table and is reachable"
     )
 
@@ -469,6 +486,7 @@ def execute(d, a, cfg, packet, masks, kp, proposer):
         tracking=not a.no_tracking,
     )
     env.top_down_deg, env.grasp_extra_depth = a.top_down_deg, a.grasp_extra_depth
+    env.sim_mesh = a.sim_mesh_grasps
 
     def stop(*_):
         raise KeyboardInterrupt

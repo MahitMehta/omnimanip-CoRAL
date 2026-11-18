@@ -169,6 +169,43 @@ robot_geoms = [
         mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, m.geom_bodyid[g]) or ""
     ).startswith(ROBOT_PREFIXES)
 ]
+
+
+def _mesh(n, o):
+    """Object n's visual mesh and its body, as sim/capture.py's ground truth (the OBJ's frame is the body's)."""
+    vis = o.asset.name + "_visual_mesh"
+    g = next(
+        g
+        for g in range(m.ngeom)
+        if m.geom_dataid[g] >= 0 and m.mesh(m.geom_dataid[g]).name.endswith(vis)
+    )
+    V, F = S.read_obj(o.asset / "meshes" / f"{o.asset.name}_visual.obj")
+    return {"body": int(m.geom_bodyid[g]), "V": np.asarray(V), "F": np.asarray(F)}
+
+
+MESHES = {n: _mesh(n, o) for n, o in scene.objects.items()}
+
+
+def mesh_near(p):
+    """SIM ONLY (rekep.run --sim-mesh-grasps): the ground-truth mesh nearest base_link point p and its pose now."""
+    best = None
+    for n, o in MESHES.items():
+        T = np.eye(4)
+        T[:3, :3], T[:3, 3] = d.xmat[o["body"]].reshape(3, 3), d.xpos[o["body"]]
+        T = np.linalg.inv(W_B) @ T
+        dist = np.linalg.norm(o["V"] @ T[:3, :3].T + T[:3, 3] - p, axis=1).min()
+        if best is None or dist < best[0]:
+            best = (dist, n, T)
+    dist, n, T = best
+    return {
+        "name": n,
+        "V": MESHES[n]["V"],
+        "F": MESHES[n]["F"],
+        "base_T_obj": T,
+        "dist_m": float(dist),
+    }
+
+
 renderer, opt = mujoco.Renderer(m, H, W), mujoco.MjvOption()
 opt.geomgroup[0] = 0  # robosuite: group 0 = collision geoms, group 1 = visuals
 lock, latest, grip, target = threading.Lock(), {}, [GRIPPER_OPEN], [None]
@@ -341,6 +378,8 @@ def handle(req):
         return {
             "grasping": bool(held) and arm.contacts_between("gripper0", held["o"]) > 0
         }
+    if c == "mesh":
+        return mesh_near(np.asarray(req["point"], float))
     if c == "joints":
         return {"q": arm.q() - WRIST_OFF}
     if c == "move":
