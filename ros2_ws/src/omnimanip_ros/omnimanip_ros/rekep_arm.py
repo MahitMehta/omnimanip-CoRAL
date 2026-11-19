@@ -68,7 +68,7 @@ class Arm(Executor):
             "robot_mask": np.zeros((0, 0), bool) if m is None else m,
         }
 
-    def handle(self, req, speed_cap):
+    def on_cmd(self, req, speed_cap):  # not `handle`: rclpy.Node has its own
         c = req["cmd"]
         if c == "capture":
             return self.capture()
@@ -146,7 +146,7 @@ def main():
     threading.Thread(target=serve, args=(fs, frame), daemon=True).start()
     print(f"[rekep-arm] commands on {a.port}, frames on {a.port + 1}", flush=True)
     try:
-        serve(cs, lambda req: node.handle(req, a.max_speed))
+        serve(cs, lambda req: node.on_cmd(req, a.max_speed))
     except KeyboardInterrupt:
         pass
     finally:
