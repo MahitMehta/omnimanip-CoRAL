@@ -3,20 +3,16 @@ from the bridge's /omnimanip/capture, the latest synced camera frame and joints,
 FollowJointTrajectory and the Robotiq through gripper-control's /gripper/gripper_cmd, all as `execute` does them
 (its Executor, without FoundationPose: ReKep tracks its keypoints itself). No operator gates (the user's choice for
 ReKep's streamed execution); Ctrl-C here or in the loop stops it, and the e-stop stays in reach. A close holds
-something when the jaws stop more than GRASPED_GAP apart. With --out (the runs root), records camera 1 to
-<out>/videos/rekep_<start>_camera1.webm and writes <out>/videos/rekep_<start>_joints.json on exit, as `execute` does.
+something when the jaws stop more than GRASPED_GAP apart. It records nothing: the loop records each execution's video
+(rekep.record) into its run dir.
 
     docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && \\
-        ros2 run omnimanip_ros rekep_arm --out $RUNS_DIR'
+        ros2 run omnimanip_ros rekep_arm'
 """
 
 import argparse
-import json
-import subprocess
-import sys
 import threading
 import time
-from pathlib import Path
 
 import msgpack
 import msgpack_numpy
@@ -28,7 +24,7 @@ from omnimanip_interfaces import srv
 from rclpy.executors import MultiThreadedExecutor
 
 from . import conv
-from .execute_node import CLOSE_GAP, OPEN_GAP, REC_FINISH, REC_TAIL, Executor
+from .execute_node import CLOSE_GAP, OPEN_GAP, Executor
 
 msgpack_numpy.patch()
 GRASPED_GAP = 0.002  # m
@@ -106,11 +102,6 @@ def main():
         help="cap on the loop's speed (fraction of the joint limits)",
     )
     ap.add_argument("--effort", type=float, default=60.0, help="gripper force, N")
-    ap.add_argument(
-        "--out",
-        default=None,
-        help="runs root: camera 1's video and the joints go to <out>/videos/",
-    )
     a, ros_args = ap.parse_known_args()
     rclpy.init(args=ros_args)
     node = Arm(a.controller)
@@ -118,20 +109,6 @@ def main():
     ex = MultiThreadedExecutor()
     ex.add_node(node)
     threading.Thread(target=ex.spin, daemon=True).start()
-    rec, stem = None, None
-    if a.out:
-        stem = Path(a.out) / "videos" / f"rekep_{time.strftime('%Y%m%d_%H%M%S')}"
-        video = Path(f"{stem}_camera1.webm")
-        rec = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "omnimanip_ros.execute_node",
-                "--record",
-                str(video),
-            ],
-            start_new_session=True,
-        )
 
     def frame(_):
         with node.flock:
@@ -150,26 +127,6 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        if a.out:
-            time.sleep(REC_TAIL)
-            Path(f"{stem}_joints.json").write_text(
-                json.dumps(
-                    {
-                        "t": [t for t, _ in node.q_log],
-                        "q": [q.tolist() for _, q in node.q_log],
-                        "motions": [
-                            {"t": m["t"], "q": np.asarray(m["q"]).tolist()}
-                            for m in node.sent
-                        ],
-                    }
-                )
-            )
-        if rec is not None:
-            rec.terminate()
-            try:
-                rec.wait(timeout=REC_FINISH)
-            except subprocess.TimeoutExpired:
-                rec.kill()
         ex.shutdown()
         rclpy.try_shutdown()
 

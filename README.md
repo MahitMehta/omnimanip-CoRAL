@@ -57,7 +57,7 @@ ReKep (arXiv 2409.01652) through its own released modules (`third_party/ReKep` @
 
 Sim: on the Mac, from `third_party/ur5e-manip-sim`, `MUJOCO_GL=cgl PYTHONPATH=.:../..:../ur5e-manip-hardware/ros2_ws/src/manip_bridge ../../sim/.venv/bin/python ../../sim/rekep_arm.py --scene ../../sim/scenes/pour_tea_coral_211215.json --camera-from ../../sim/scenes/camera_coral_211215.json --video <file>.mp4`; tunnel it to CoRAL (`ssh -f -N -R 5684:127.0.0.1:5684 -R 5685:127.0.0.1:5685 coral`) and run `rekep.run` there as on the robot (`--sim-mesh-grasps`, SIM ONLY: OmniManip's privileged antipodal grasps on the object's true mesh in place of AnyGrasp's). Robot: the OmniManip setup (Real robot, steps 1–5), then
 ```bash
-docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && ros2 run omnimanip_ros rekep_arm --out $RUNS_DIR'
+docker exec -it OmniManipROS bash -c 'umask 0 && source install/setup.bash && ros2 run omnimanip_ros rekep_arm'
 cd ~/omnimanip-rekep && .venv/bin/python -m rekep.run --out $RUNS_DIR --task "<instruction>" --plan   # check masks.png, keypoints.png, program/
 .venv/bin/python -m rekep.run --run $RUNS_DIR/$(ls -t $RUNS_DIR | grep rekep_ | head -1) --from execute
 ```
