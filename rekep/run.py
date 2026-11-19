@@ -90,10 +90,11 @@ def rgb_of(d, name):
 
 
 def frame(d):
-    """-> rgb, depth (m), K, packet, SAM masks (N x H x W bool), robot mask, T_base_cam."""
+    """-> rgb, depth (m), K, packet, SAM masks (N x H x W bool, only pixels with depth: a pixel without has no point,
+    and every stage then sizes a mask the same way against max_mask_ratio), robot mask, T_base_cam."""
     packet = json.loads((d / "packet.json").read_text())
     depth = S.imread(d / "depth_mm.png", cv2.IMREAD_UNCHANGED).astype(np.float32) / 1000
-    masks = np.load(d / "masks.npz")["masks"]
+    masks = np.load(d / "masks.npz")["masks"] & (depth > 0)
     rmask = S.imread(d / "robot_mask.png", cv2.IMREAD_GRAYSCALE) > 127
     return (
         rgb_of(d, "rgb.png"),
@@ -160,7 +161,6 @@ def keypoints(d, a):
     rgb, depth, K, packet, masks, rmask, T = frame(d)
     cfg = C.config(*C.workspace(packet))
     kp = C.proposer(cfg)
-    masks = masks & (depth > 0)  # pixels without depth have no point
     # k-means needs at least k points per mask; masks at least ROBOT_SHARE the robot's are the arm, not the scene;
     # groups stay indices into masks.npz
     n = masks.sum((1, 2))
