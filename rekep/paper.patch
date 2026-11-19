@@ -41,7 +41,7 @@ index 1ffb667..202ed42 100644
      # collision cost
      if collision_points_centered is not None:
 -        collision_cost = 0.5 * calculate_collision_cost(poses_homo[start_idx:end_idx], sdf_func, collision_points_centered, 0.20)
-+        collision_cost = 0.5 * calculate_collision_cost(poses_homo[far], sdf_func, collision_points_centered, 0.05) if far.any() else 0.0  # paper A.9: as in A.8 (15 cm; 5 cm here, rekep/DEVIATIONS.md)
++        collision_cost = 0.5 * calculate_collision_cost(poses_homo[far], sdf_func, collision_points_centered, 0.15) if far.any() else 0.0  # paper A.9: as in A.8 (15 cm)
          debug_dict['collision_cost'] = collision_cost
          cost += collision_cost
 +        # paper A.9: table clearance, the gripper (and held object) points under the table
@@ -143,7 +143,7 @@ index 4e50614..bfdf3e9 100644
      # collision cost
      if collision_points_centered is not None:
 -        collision_cost = 0.8 * calculate_collision_cost(opt_pose_homo[None], sdf_func, collision_points_centered, 0.10)
-+        collision_cost = 0.8 * calculate_collision_cost(opt_pose_homo[None], sdf_func, collision_points_centered, 0.05)  # paper A.8: 15 cm (5 cm here, rekep/DEVIATIONS.md)
++        collision_cost = 0.8 * calculate_collision_cost(opt_pose_homo[None], sdf_func, collision_points_centered, 0.15)  # paper A.8: 15 cm
          debug_dict['collision_cost'] = collision_cost
          cost += collision_cost
  
