@@ -31,3 +31,6 @@ SIDECARS = {
     # ReKep's arm server (rekep/loop.py's protocol; frames on port + 1): omnimanip_ros rekep_arm, or sim/rekep_arm.py
     "rekep_arm": int(os.getenv("REKEP_ARM_PORT", "5684")),
 }
+
+# ReKep's DINOv2 (keypoint proposal and the point tracker) runs on this torch device, e.g. cuda:1
+REKEP_DEVICE = os.getenv("REKEP_DEVICE", "cuda")

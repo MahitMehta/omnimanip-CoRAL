@@ -18,6 +18,7 @@ from subgoal_solver import SubgoalSolver
 from utils import get_config
 
 from omnimanip import grasp as G
+from omnimanip.config import REKEP_DEVICE
 from omnimanip import motion
 
 TOOL0_T_EE = motion.tool0_T_grasp(0.0)
@@ -43,7 +44,9 @@ def config(lo, hi):
     for k in ("main", "path_solver", "subgoal_solver", "keypoint_proposer"):
         c[k]["bounds_min"], c[k]["bounds_max"] = lo.tolist(), hi.tolist()
     c["keypoint_proposer"]["min_dist_bt_keypoints"] = 0.06  # rekep/DEVIATIONS.md
-    c["keypoint_proposer"]["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+    c["keypoint_proposer"]["device"] = (
+        REKEP_DEVICE if torch.cuda.is_available() else "cpu"
+    )  # DINOv2 (proposal and tracker)
     for k in ("path_solver", "subgoal_solver"):
         c[k]["max_collision_points"] = 30  # paper A.8
     c["path_solver"]["table_z"] = float(
