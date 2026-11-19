@@ -12,9 +12,9 @@ Arm server protocol (msgpack, REQ/REP; frames on port + 1 so they keep coming du
     {"cmd": "gripper", "close"}         -> {"ok", "grasped"}
 """
 
-import contextlib
 import json
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -463,7 +463,7 @@ def _tips(rep, i):
 
 def execute(d, a, cfg, packet, masks, kp, proposer):
     """Run the program in d on the arm server a.arm (SIDECARS["rekep_arm"]). Into the run dir: exec_<stamp>.json
-    (exec.json = the latest) and videos/exec_<stamp>.mp4, the arm server's camera recorded by record()."""
+    (exec.json = the latest) and videos/exec_<stamp>.mp4, the arm server's camera recorded by rekep.record in its own process."""
     stamp = time.strftime("%Y%m%d_%H%M%S")
     log = {
         "args": {k: str(v) for k, v in vars(a).items()},
@@ -492,12 +492,15 @@ def execute(d, a, cfg, packet, masks, kp, proposer):
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, stop)  # as Ctrl-C: exec.json is still written
-    rec = threading.Event()
-    threading.Thread(
-        target=record,
-        args=(a.arm, d / "videos" / f"exec_{stamp}.mp4", rec),
-        daemon=True,
-    ).start()
+    rec = subprocess.Popen(  # its own process: a thread here starves while the solvers hold the GIL
+        [
+            sys.executable,
+            "-m",
+            "rekep.record",
+            a.arm,
+            str(d / "videos" / f"exec_{stamp}.mp4"),
+        ]
+    )
     try:
         Loop(env, cfg)._execute(str(d / "program"))
         log["status"] = "completed"
@@ -508,27 +511,9 @@ def execute(d, a, cfg, packet, masks, kp, proposer):
         raise
     finally:
         env.save_video()
-        rec.set()
+        rec.terminate()
         text = json.dumps(log, indent=1, default=lambda x: np.asarray(x).tolist())
         for name in (f"exec_{stamp}.json", "exec.json"):
             (d / name).write_text(text)
-        time.sleep(1.0)  # the recorder closes its file
+        rec.wait(timeout=10)  # the recorder closes its file
         print("exec:", log["status"], "->", d / f"exec_{stamp}.json")
-
-
-def record(addr, path, stop, fps=10):
-    """The arm server's camera to an mp4 at up to fps (its own frame connection), until stop is set."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frames, out = Arm(addr), None
-    while not stop.is_set():
-        t0 = time.time()
-        with contextlib.suppress(Exception):  # a lost frame
-            rgb = np.asarray(frames.frame()["rgb"], np.uint8)
-            if out is None:
-                out = cv2.VideoWriter(
-                    str(path), cv2.VideoWriter.fourcc(*"mp4v"), fps, rgb.shape[1::-1]
-                )
-            out.write(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-        time.sleep(max(0.0, 1 / fps - (time.time() - t0)))
-    if out is not None:
-        out.release()
