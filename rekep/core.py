@@ -43,7 +43,7 @@ def config(lo, hi):
     c = copy.deepcopy(get_config())
     for k in ("main", "path_solver", "subgoal_solver", "keypoint_proposer"):
         c[k]["bounds_min"], c[k]["bounds_max"] = lo.tolist(), hi.tolist()
-    c["keypoint_proposer"]["min_dist_bt_keypoints"] = 0.06  # rekep/DEVIATIONS.md
+    c["keypoint_proposer"]["min_dist_bt_keypoints"] = 0.05  # rekep/DEVIATIONS.md
     c["keypoint_proposer"]["device"] = (
         REKEP_DEVICE if torch.cuda.is_available() else "cpu"
     )  # DINOv2 (proposal and tracker)
